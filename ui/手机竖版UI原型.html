@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Triple Shot 手机竖版 UI 原型</title>
+    <link rel="stylesheet" href="./手机竖版UI原型.css" />
+  </head>
+  <body>
+    <svg aria-hidden="true" class="svg-sprite">
+      <symbol id="icon-menu" viewBox="0 0 24 24">
+        <path d="M5 7h14M5 12h14M5 17h10" />
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <path d="m20 20-4.6-4.6M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z" />
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M20 8v6h-6M4 16v-6h6M18.2 9.6A7.2 7.2 0 0 0 6.4 7M5.8 14.4A7.2 7.2 0 0 0 17.6 17" />
+      </symbol>
+      <symbol id="icon-home" viewBox="0 0 24 24">
+        <path d="m4 11 8-7 8 7v8a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8Z" />
+      </symbol>
+      <symbol id="icon-grid" viewBox="0 0 24 24">
+        <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" />
+      </symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24">
+        <path d="M4 20h5l10.5-10.5a2.1 2.1 0 0 0-3-3L6 17v3ZM14 7l3 3" />
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.2-.1a1.7 1.7 0 0 0-2 .1 7.7 7.7 0 0 1-1.6.9 1.7 1.7 0 0 0-1 1.5v.2H9v-.2a1.7 1.7 0 0 0-1-1.5 7.7 7.7 0 0 1-1.6-.9 1.7 1.7 0 0 0-2-.1l-.2.1-2-3.4.1-.1A1.7 1.7 0 0 0 2.6 15a7.9 7.9 0 0 1 0-1.9 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.4.2.1a1.7 1.7 0 0 0 2-.1A7.7 7.7 0 0 1 8 6.8a1.7 1.7 0 0 0 1-1.5V5h4v.2a1.7 1.7 0 0 0 1 1.5 7.7 7.7 0 0 1 1.6.9 1.7 1.7 0 0 0 2 .1l.2-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9 7.9 7.9 0 0 1 0 2Z" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="m5 12.4 4.2 4.1L19 7" />
+      </symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24">
+        <path d="M12 8v5M12 17h.01M10.2 4.8 2.8 18a1.4 1.4 0 0 0 1.2 2h16a1.4 1.4 0 0 0 1.2-2L13.8 4.8a1.4 1.4 0 0 0-2.4 0Z" />
+      </symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+      </symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24">
+        <path d="M5 12h.01M12 12h.01M19 12h.01" />
+      </symbol>
+    </svg>
+
+    <main class="phone-shell home-mode" aria-label="Triple Shot 手机竖版原型">
+      <header class="topbar">
+        <button class="icon-button" type="button" aria-label="打开菜单">
+          <svg><use href="#icon-menu"></use></svg>
+        </button>
+        <div class="brand">
+          <span class="brand-mark">TS</span>
+          <span>
+            <strong>Triple Shot</strong>
+            <small>本地样张库</small>
+          </span>
+        </div>
+        <button class="icon-button" id="refreshDemo" type="button" aria-label="刷新当前状态">
+          <svg><use href="#icon-refresh"></use></svg>
+        </button>
+      </header>
+
+      <div class="save-island" role="status" aria-live="polite">
+        <span class="pulse-dot"></span>
+        <span id="saveStatus">本地已保存</span>
+      </div>
+
+      <section class="panel is-active home-panel" data-panel="home" aria-labelledby="homeTitle">
+        <div class="generation-stage" aria-live="polite">
+          <div class="desk-grain" aria-hidden="true"></div>
+
+          <div class="generation-hud">
+            <div>
+              <span id="homeTitle">Triple Shot</span>
+              <strong id="generationStatus">等待上传</strong>
+            </div>
+            <button class="hud-button" id="restartGeneration" type="button">再来一组</button>
+          </div>
+
+          <div class="burst-ring" aria-hidden="true"></div>
+
+          <figure class="source-photo paper-photo" id="sourcePhoto">
+            <img src="../backup/原图.jpg" alt="用户上传的原始照片" />
+            <figcaption>原图</figcaption>
+          </figure>
+
+          <button class="result-photo paper-photo result-one" type="button" data-generation-card="work-pro" aria-label="查看专业摄影版">
+            <span class="result-loader">
+              <span></span>
+            </span>
+            <img class="placeholder-img" src="../backup/原图.jpg" alt="" aria-hidden="true" />
+            <img class="final-img" src="../backup/专业摄影.jpg" alt="专业摄影生成结果" />
+            <span class="result-label">专业摄影</span>
+            <span class="result-time">12s</span>
+          </button>
+
+          <button class="result-photo paper-photo result-two" type="button" data-generation-card="work-anime" aria-label="查看动画暖光版">
+            <span class="result-loader">
+              <span></span>
+            </span>
+            <img class="placeholder-img" src="../backup/原图.jpg" alt="" aria-hidden="true" />
+            <img class="final-img" src="../backup/吉卜力.jpg" alt="动画暖光生成结果" />
+            <span class="result-label">动画暖光</span>
+            <span class="result-time">14s</span>
+          </button>
+
+          <button class="result-photo paper-photo result-three" type="button" data-generation-card="work-watercolor" aria-label="查看水彩纸感版">
+            <span class="result-loader">
+              <span></span>
+            </span>
+            <img class="placeholder-img" src="../backup/原图.jpg" alt="" aria-hidden="true" />
+            <img class="final-img" src="../backup/水彩.jpg" alt="水彩纸感生成结果" />
+            <span class="result-label">水彩纸感</span>
+            <span class="result-time">16s</span>
+          </button>
+
+          <div class="upload-dock">
+            <button class="upload-button" id="fakeUpload" type="button">
+              <svg><use href="#icon-plus"></use></svg>
+              上传照片
+            </button>
+            <button class="ghost-dock-button" id="showDetailFromHome" type="button">查看结果</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="works" aria-labelledby="worksTitle">
+        <div class="page-title">
+          <p class="eyebrow">作品</p>
+          <h1 id="worksTitle">样张列表</h1>
+        </div>
+
+        <label class="search-field">
+          <svg><use href="#icon-search"></use></svg>
+          <input id="searchInput" type="search" placeholder="搜索风格、状态或备注" autocomplete="off" />
+        </label>
+
+        <div class="filter-row" role="group" aria-label="筛选状态">
+          <button class="filter-chip is-active" type="button" data-filter="all">全部</button>
+          <button class="filter-chip" type="button" data-filter="ready">完成</button>
+          <button class="filter-chip" type="button" data-filter="draft">草稿</button>
+          <button class="filter-chip" type="button" data-filter="failed">异常</button>
+        </div>
+
+        <div class="work-list" id="workList" aria-live="polite"></div>
+      </section>
+
+      <section class="panel" data-panel="drafts" aria-labelledby="draftsTitle">
+        <div class="page-title">
+          <p class="eyebrow">草稿</p>
+          <h1 id="draftsTitle">未完成内容</h1>
+        </div>
+
+        <button class="drop-zone" type="button" id="openCreateFromDrop">
+          <span class="drop-icon">
+            <svg><use href="#icon-plus"></use></svg>
+          </span>
+          <strong>添加新照片</strong>
+          <small>先录入标题，再选择想要的转换风格。</small>
+        </button>
+
+        <article class="inline-state error-card" id="errorCard">
+          <svg><use href="#icon-alert"></use></svg>
+          <div>
+            <strong>水彩纸感版需要重新保存</strong>
+            <small>上次保存被中断，草稿仍在本地。</small>
+          </div>
+          <button class="small-button" type="button" id="retryDraft">重试</button>
+        </article>
+
+        <div class="skeleton-group" id="draftSkeleton" hidden>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="settings" aria-labelledby="settingsTitle">
+        <div class="page-title">
+          <p class="eyebrow">设置</p>
+          <h1 id="settingsTitle">本地工作区</h1>
+        </div>
+
+        <div class="setting-list">
+          <article class="setting-row">
+            <div>
+              <strong>数据文件</strong>
+              <small>SQLite 本地存储，适合先做轻量原型。</small>
+            </div>
+            <span class="status ready">正常</span>
+          </article>
+          <article class="setting-row">
+            <div>
+              <strong>图片目录</strong>
+              <small>当前读取 backup 文件夹中的样张。</small>
+            </div>
+            <span class="status draft">待整理</span>
+          </article>
+          <article class="setting-row">
+            <div>
+              <strong>外观模式</strong>
+              <small>跟随样张色板，保持浅色背景。</small>
+            </div>
+            <label class="switch">
+              <input type="checkbox" checked aria-label="启用浅色背景" />
+              <span></span>
+            </label>
+          </article>
+        </div>
+      </section>
+
+      <button class="fab" id="newShotButton" type="button" aria-label="新建样张">
+        <svg><use href="#icon-plus"></use></svg>
+      </button>
+
+      <nav class="bottom-nav" aria-label="主导航">
+        <button class="nav-item is-active" type="button" data-target="home">
+          <svg><use href="#icon-home"></use></svg>
+          <span>首页</span>
+        </button>
+        <button class="nav-item" type="button" data-target="works">
+          <svg><use href="#icon-grid"></use></svg>
+          <span>作品</span>
+        </button>
+        <button class="nav-item" type="button" data-target="drafts">
+          <svg><use href="#icon-edit"></use></svg>
+          <span>草稿</span>
+        </button>
+        <button class="nav-item" type="button" data-target="settings">
+          <svg><use href="#icon-settings"></use></svg>
+          <span>设置</span>
+        </button>
+      </nav>
+    </main>
+
+    <div class="sheet-layer" id="detailSheet" hidden>
+      <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+        <div class="sheet-handle"></div>
+        <header class="sheet-header">
+          <div>
+            <p class="eyebrow">详情</p>
+            <h2 id="detailTitle">专业摄影版</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-sheet aria-label="关闭详情">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+        <img class="detail-image" id="detailImage" src="../backup/专业摄影.jpg" alt="详情预览图" />
+        <div class="detail-thumbs" id="detailThumbs" aria-label="切换详情图片"></div>
+        <div class="detail-grid">
+          <div>
+            <span>保存状态</span>
+            <strong id="detailStatus">完成</strong>
+          </div>
+          <div>
+            <span>更新时间</span>
+            <strong id="detailTime">16:12</strong>
+          </div>
+        </div>
+        <div class="sheet-actions">
+          <button class="secondary-button" type="button" id="deleteWork">
+            <svg><use href="#icon-trash"></use></svg>
+            删除
+          </button>
+          <button class="primary-button" type="button" id="saveWork">
+            <svg><use href="#icon-check"></use></svg>
+            保存
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div class="sheet-layer" id="createSheet" hidden>
+      <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="createTitle">
+        <div class="sheet-handle"></div>
+        <header class="sheet-header">
+          <div>
+            <p class="eyebrow">新建</p>
+            <h2 id="createTitle">创建样张</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-create aria-label="关闭创建面板">
+            <svg><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+        <form class="create-form" id="createForm" novalidate>
+          <label class="field-group">
+            <span>标题</span>
+            <input id="shotTitle" type="text" placeholder="例如：窗边人像水彩版" />
+            <small id="titleError" class="field-error" hidden>请输入标题后再保存。</small>
+          </label>
+          <label class="field-group">
+            <span>风格</span>
+            <select id="styleSelect">
+              <option value="pro">专业摄影</option>
+              <option value="anime">动画暖光</option>
+              <option value="watercolor">水彩纸感</option>
+              <option value="original">原图</option>
+            </select>
+            <small>保存后会出现在作品列表。</small>
+          </label>
+          <div class="form-preview">
+            <img id="formPreview" src="../backup/专业摄影.jpg" alt="表单风格预览" />
+            <span>预览</span>
+          </div>
+          <button class="primary-button full-width" type="submit" id="submitCreate">
+            <svg><use href="#icon-check"></use></svg>
+            保存草稿
+          </button>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-layer" id="confirmModal" hidden>
+      <section class="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+        <h2 id="confirmTitle">删除这张样张？</h2>
+        <p>删除后会从当前列表移除。原图文件不会被删除。</p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" id="cancelDelete">取消</button>
+          <button class="danger-button" type="button" id="confirmDelete">删除</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="./手机竖版UI原型.js"></script>
+  </body>
+</html>
