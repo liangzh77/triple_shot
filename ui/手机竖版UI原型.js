@@ -105,6 +105,8 @@ let styleDockRevealed = false;
 let sourceReady = false;
 let filmPointerStartX = null;
 let filmPointerLastX = null;
+let filmPointerLastTime = 0;
+let filmPointerVelocity = 0;
 let filmPointerMoved = false;
 let filmClickSuppressed = false;
 let filmPeekRevealedDuringDrag = false;
@@ -121,6 +123,7 @@ const generationStage = document.querySelector(".generation-stage");
 const sourcePhoto = document.querySelector("#sourcePhoto");
 const sourceImage = sourcePhoto?.querySelector("img");
 const generationCards = Array.from(document.querySelectorAll("[data-generation-card]"));
+const captureActions = document.querySelector("#captureActions");
 const styleAlbumToggle = document.querySelector("#styleAlbumToggle");
 const styleWall = document.querySelector("#styleWall");
 const styleWallInner = document.querySelector("#styleWallInner");
@@ -285,11 +288,17 @@ function updateStyleWallSelection() {
 
 function renderSelectedStyles() {
   if (!selectedStyleDock) return;
+  const tossed = [
+    { x: "-2px", y: "3px", rot: "-5deg" },
+    { x: "3px", y: "-2px", rot: "4deg" },
+    { x: "-1px", y: "4px", rot: "-2deg" }
+  ];
   selectedStyleDock.innerHTML = selectedStyles
-    .map((key) => {
+    .map((key, index) => {
       const style = getStyle(key);
+      const pose = tossed[index % tossed.length];
       return `
-        <button class="selected-style-card is-selected" type="button" data-style-preview="${style.key}" aria-label="预览${style.label}">
+        <button class="selected-style-card" type="button" data-style-preview="${style.key}" aria-label="预览${style.label}" style="--dock-x: ${pose.x}; --dock-y: ${pose.y}; --dock-rot: ${pose.rot}">
           <img src="${style.image}" alt="${style.label}小卡片" />
           <span>${style.label}</span>
         </button>
@@ -347,6 +356,8 @@ function setAlbumOpen(open) {
   }
   styleAlbumToggle.setAttribute("aria-expanded", String(open));
   styleAlbumToggle.setAttribute("aria-label", open ? "收起风格影集" : "打开风格影集");
+  phoneShell?.classList.toggle("is-album-open", open);
+  captureActions?.classList.toggle("is-hidden-by-album", open);
   updateSelectedStyleDock();
 }
 
@@ -525,7 +536,7 @@ function startGenerationDemo() {
         card.classList.add("is-ready");
         const time = card.querySelector(".result-time");
         const label = card.querySelector(".result-label")?.textContent || "风格";
-        if (time) time.textContent = "完成";
+        if (time) time.textContent = "";
         showToast(`${label} 已生成`);
       }, item.seconds * 1000 + index * 120)
     );
@@ -592,7 +603,7 @@ function setGroupOnDesk(group) {
     card.classList.add("is-spawned", "is-ready");
     card.classList.remove("is-generating");
     const time = card.querySelector(".result-time");
-    if (time) time.textContent = "完成";
+    if (time) time.textContent = "";
   });
   startGenerationButton.hidden = true;
   updateSelectedStyleDock();
@@ -602,7 +613,7 @@ function setFilmDockExpanded(expanded, options = {}) {
   if (!filmDock || !filmToggle) return;
   filmDock.classList.toggle("is-collapsed", !expanded);
   filmDock.classList.toggle("is-peek", expanded);
-  filmDock.classList.remove("is-dragging");
+  filmDock.classList.remove("is-dragging", "is-momentum");
   filmStrip?.style.removeProperty("--film-drag-x");
   filmToggle.setAttribute("aria-expanded", String(expanded));
   filmToggle.setAttribute("aria-label", expanded ? "收起生成组胶卷" : "展开生成组胶卷");
@@ -625,37 +636,56 @@ function setFilmDockExpanded(expanded, options = {}) {
 function resetFilmDrag() {
   filmPointerStartX = null;
   filmPointerLastX = null;
+  filmPointerLastTime = 0;
+  filmPointerVelocity = 0;
   filmPointerMoved = false;
   filmPeekRevealedDuringDrag = false;
   filmMovedGroupDuringDrag = false;
-  filmDock?.classList.remove("is-dragging");
+  filmDock?.classList.remove("is-dragging", "is-momentum");
   filmStrip?.style.removeProperty("--film-drag-x");
   window.removeEventListener("pointermove", handleFilmPointerMove);
   window.removeEventListener("pointerup", handleFilmPointerEnd);
   window.removeEventListener("pointercancel", resetFilmDrag);
 }
 
+function glideFilmToGroup(stepCount) {
+  if (!filmStrip || !stepCount) return;
+  const maxIndex = generationGroups.length - 1;
+  const targetIndex = Math.min(Math.max(0, activeGroupIndex + stepCount), maxIndex);
+  const actualStep = targetIndex - activeGroupIndex;
+  if (!actualStep) return;
+  const direction = actualStep > 0 ? -1 : 1;
+  const distance = Math.min(156, 76 + Math.abs(actualStep) * 38);
+  filmClickSuppressed = true;
+  filmDock?.classList.remove("is-dragging");
+  filmDock?.classList.add("is-momentum");
+  filmStrip.style.setProperty("--film-drag-x", `${direction * distance}px`);
+  window.setTimeout(() => {
+    selectGroup(targetIndex);
+    filmStrip.style.removeProperty("--film-drag-x");
+    filmDock?.classList.remove("is-momentum");
+  }, 320);
+  window.setTimeout(() => {
+    filmClickSuppressed = false;
+  }, 420);
+}
+
 function handleFilmPointerMove(event) {
   if (filmPointerStartX === null || !filmStrip) return;
+  const now = performance.now();
+  if (filmPointerLastX !== null && filmPointerLastTime) {
+    const dt = Math.max(8, now - filmPointerLastTime);
+    filmPointerVelocity = (event.clientX - filmPointerLastX) / dt;
+  }
   const delta = event.clientX - filmPointerStartX;
   filmPointerLastX = event.clientX;
+  filmPointerLastTime = now;
   if (Math.abs(delta) > 4) filmPointerMoved = true;
-  const offset = Math.max(-22, Math.min(8, delta * 0.28));
+  const offset = Math.max(-122, Math.min(78, delta));
   filmStrip.style.setProperty("--film-drag-x", `${offset}px`);
   if (filmDock?.classList.contains("is-peek") && delta < -26) {
     filmDock.classList.remove("is-peek");
     filmPeekRevealedDuringDrag = true;
-  }
-  if (!filmDock?.classList.contains("is-peek") && !filmPeekRevealedDuringDrag && !filmMovedGroupDuringDrag) {
-    if (delta < -72) {
-      selectGroup(activeGroupIndex + 1);
-      filmMovedGroupDuringDrag = true;
-      filmPointerStartX = event.clientX;
-    } else if (delta > 72) {
-      selectGroup(activeGroupIndex - 1);
-      filmMovedGroupDuringDrag = true;
-      filmPointerStartX = event.clientX;
-    }
   }
 }
 
@@ -674,16 +704,21 @@ function handleFilmPointerEnd(event) {
   filmPointerLastX = null;
   const revealedOnly = filmPeekRevealedDuringDrag;
   const movedGroup = filmMovedGroupDuringDrag;
+  const velocity = filmPointerVelocity;
   filmPointerMoved = false;
   filmPeekRevealedDuringDrag = false;
   filmMovedGroupDuringDrag = false;
+  filmPointerVelocity = 0;
+  filmPointerLastTime = 0;
   window.removeEventListener("pointermove", handleFilmPointerMove);
   window.removeEventListener("pointerup", handleFilmPointerEnd);
   window.removeEventListener("pointercancel", resetFilmDrag);
   if (Math.abs(delta) < 28) return;
   if (movedGroup) return;
-  if (revealedOnly) return;
-  selectGroup(activeGroupIndex + (delta < 0 ? 1 : -1));
+  const fast = Math.abs(velocity) > 0.58;
+  const stepCount = fast ? (velocity < 0 ? 2 : -2) : (delta < 0 ? 1 : -1);
+  if (revealedOnly && !fast && Math.abs(delta) < 118) return;
+  glideFilmToGroup(stepCount);
 }
 
 function openSharePreview(imageSrc, label = "照片") {
@@ -782,6 +817,8 @@ filmStrip?.addEventListener("pointerdown", (event) => {
   if (filmDock?.classList.contains("is-collapsed")) return;
   filmPointerStartX = event.clientX;
   filmPointerLastX = event.clientX;
+  filmPointerLastTime = performance.now();
+  filmPointerVelocity = 0;
   filmPointerMoved = false;
   filmPeekRevealedDuringDrag = false;
   filmMovedGroupDuringDrag = false;
