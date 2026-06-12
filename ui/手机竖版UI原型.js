@@ -10,22 +10,43 @@ const styleOptions = [
     key: "pro",
     label: "专业摄影",
     image: "../backup/专业摄影.jpg",
-    note: "景深更明确，人物主体更突出。",
-    hero: "柔和景深、真实肤色和清楚主体，适合做首屏主视觉。"
+    note: "柔和景深，人物主体更清楚。",
+    hero: "自然肤色、柔和景深和清楚主体。"
   },
   {
     key: "anime",
     label: "动画暖光",
     image: "../backup/吉卜力.jpg",
     note: "温暖叙事感，适合故事化展示。",
-    hero: "暖色线稿和室内细节更有叙事感，适合做风格示例。"
+    hero: "暖色线稿和室内细节更有叙事感。"
   },
   {
     key: "watercolor",
     label: "水彩纸感",
     image: "../backup/水彩.jpg",
     note: "纸张肌理明显，适合轻量插画方向。",
-    hero: "明亮纸感与留白更轻，适合做空状态或草稿预览。"
+    hero: "明亮纸感与留白更轻。"
+  },
+  {
+    key: "film",
+    label: "复古胶片",
+    image: "../backup/专业摄影.jpg",
+    note: "偏暖颗粒感，像旧相册翻拍。",
+    hero: "让日常照片更像老胶片。"
+  },
+  {
+    key: "clear",
+    label: "清透写真",
+    image: "../backup/原图.jpg",
+    note: "保留真实光线，增加干净通透感。",
+    hero: "适合生活方式和头像照片。"
+  },
+  {
+    key: "paper",
+    label: "手账拼贴",
+    image: "../backup/水彩.jpg",
+    note: "轻微纸边和手工感，适合发帖封面。",
+    hero: "像贴进手账里的照片。"
   }
 ];
 
@@ -70,24 +91,47 @@ let works = [
   }
 ];
 
-let activeStyle = "pro";
+const selectableStyles = styleOptions.filter((style) => style.key !== "original");
+let selectedStyles = ["pro", "anime", "watercolor"];
 let activeFilter = "all";
 let selectedWorkId = works[0].id;
+let activeGroupIndex = 0;
+let filmWindowStart = 0;
+let albumAnimationTimer;
 let toastTimer;
 let generationInterval;
 let generationTimers = [];
+let styleDockRevealed = false;
+let sourceReady = false;
+let filmPointerStartX = null;
+let filmPointerLastX = null;
+let filmPointerMoved = false;
+let filmClickSuppressed = false;
+let filmPeekRevealedDuringDrag = false;
+let filmMovedGroupDuringDrag = false;
 
-const styleRail = document.querySelector("#styleRail");
 const workList = document.querySelector("#workList");
 const searchInput = document.querySelector("#searchInput");
 const saveStatus = document.querySelector("#saveStatus");
 const phoneShell = document.querySelector(".phone-shell");
 const filmDock = document.querySelector("#filmDock");
 const filmToggle = document.querySelector("#filmToggle");
+const filmStrip = document.querySelector("#filmStrip");
 const generationStage = document.querySelector(".generation-stage");
-const generationStatus = document.querySelector("#generationStatus");
 const sourcePhoto = document.querySelector("#sourcePhoto");
+const sourceImage = sourcePhoto?.querySelector("img");
 const generationCards = Array.from(document.querySelectorAll("[data-generation-card]"));
+const styleAlbumToggle = document.querySelector("#styleAlbumToggle");
+const styleWall = document.querySelector("#styleWall");
+const styleWallInner = document.querySelector("#styleWallInner");
+const selectedStyleDock = document.querySelector("#selectedStyleDock");
+const styleFocus = document.querySelector("#styleFocus");
+const styleFocusCard = document.querySelector("#styleFocusCard");
+const styleFocusImage = document.querySelector("#styleFocusImage");
+const styleFocusLabel = document.querySelector("#styleFocusLabel");
+const startGenerationButton = document.querySelector("#startGenerationButton");
+const takePhotoButton = document.querySelector("#takePhotoButton");
+const fakeUploadButton = document.querySelector("#fakeUpload");
 const detailSheet = document.querySelector("#detailSheet");
 const detailTitle = document.querySelector("#detailTitle");
 const detailImage = document.querySelector("#detailImage");
@@ -104,55 +148,50 @@ const titleError = document.querySelector("#titleError");
 const submitCreate = document.querySelector("#submitCreate");
 const errorCard = document.querySelector("#errorCard");
 const draftSkeleton = document.querySelector("#draftSkeleton");
+const sharePreview = document.querySelector("#sharePreview");
+const sharePreviewScrim = document.querySelector("#sharePreviewScrim");
+const shareCopy = document.querySelector("#shareCopy");
+const shareImage = document.querySelector("#shareImage");
 
-const generationQueue = [
-  { workId: "work-pro", label: "专业摄影", seconds: 12 },
-  { workId: "work-anime", label: "动画暖光", seconds: 14 },
-  { workId: "work-watercolor", label: "水彩纸感", seconds: 16 }
+const generationTiming = [
+  { seconds: 12 },
+  { seconds: 14 },
+  { seconds: 16 }
 ];
 
+let generationGroups = [
+  createGroup("group-1", "原图和三张生成图", "../backup/原图.jpg", ["pro", "anime", "watercolor"]),
+  createGroup("group-2", "专业摄影起稿", "../backup/专业摄影.jpg", ["anime", "watercolor", "film"]),
+  createGroup("group-3", "动画暖光起稿", "../backup/吉卜力.jpg", ["watercolor", "pro", "paper"]),
+  createGroup("group-4", "水彩纸感起稿", "../backup/水彩.jpg", ["pro", "anime", "clear"]),
+  createGroup("group-5", "自然光起稿", "../backup/原图.jpg", ["film", "paper", "pro"])
+];
+
+function createGroup(id, title, source, styleKeys) {
+  return {
+    id,
+    title,
+    source,
+    outputs: styleKeys.slice(0, 3).map((key) => getStyle(key))
+  };
+}
+
 function getStyle(key) {
-  return styleOptions.find((style) => style.key === key) || styleOptions[0];
+  return styleOptions.find((style) => style.key === key) || styleOptions[1];
 }
 
-function renderStyleRail() {
-  if (!styleRail) return;
-  styleRail.innerHTML = styleOptions
-    .map((style) => {
-      const selected = style.key === activeStyle ? " is-active" : "";
-      return `
-        <button class="style-card${selected}" type="button" data-style="${style.key}" aria-pressed="${style.key === activeStyle}">
-          <img src="${style.image}" alt="${style.label}样张" />
-          <span>
-            <strong>${style.label}</strong>
-            <small>${style.note}</small>
-          </span>
-        </button>
-      `;
-    })
-    .join("");
+function showToast(message) {
+  if (!toast) return;
+  window.clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  toastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+  }, 2200);
 }
 
-function setActiveStyle(key) {
-  if (!styleRail) return;
-  const next = getStyle(key);
-  activeStyle = next.key;
-  const hero = document.querySelector(".hero-shot");
-  if (!hero) return;
-  hero.classList.add("is-switching");
-  window.setTimeout(() => {
-    const heroImage = document.querySelector("#heroImage");
-    const heroDesc = document.querySelector("#heroDesc");
-    const activeStyleLabel = document.querySelector("#activeStyleLabel");
-    if (heroImage) {
-      heroImage.src = next.image;
-      heroImage.alt = `${next.label}风格样张`;
-    }
-    if (heroDesc) heroDesc.textContent = next.hero;
-    if (activeStyleLabel) activeStyleLabel.textContent = next.label;
-    renderStyleRail();
-    hero.classList.remove("is-switching");
-  }, 150);
+function setSaveStatus(message) {
+  if (saveStatus) saveStatus.textContent = message;
 }
 
 function makeStatus(status) {
@@ -160,6 +199,7 @@ function makeStatus(status) {
 }
 
 function renderWorks({ loading = false } = {}) {
+  if (!workList || !searchInput) return;
   if (loading) {
     workList.innerHTML = `
       <span class="skeleton-line"></span>
@@ -207,37 +247,130 @@ function renderWorks({ loading = false } = {}) {
 }
 
 function setPanel(name) {
+  if (!phoneShell) return;
   phoneShell.classList.toggle("home-mode", name === "home");
   document.querySelectorAll(".panel").forEach((panel) => {
     panel.classList.toggle("is-active", panel.dataset.panel === name);
   });
-  document.querySelectorAll(".nav-item").forEach((item) => {
-    item.classList.toggle("is-active", item.dataset.target === name);
+  const newShotButton = document.querySelector("#newShotButton");
+  if (newShotButton) newShotButton.hidden = name === "home" || name === "settings";
+}
+
+function renderStyleWall() {
+  if (!styleWallInner) return;
+  styleWallInner.innerHTML = selectableStyles
+    .map((style, index) => {
+      const selected = selectedStyles.includes(style.key) ? " is-selected" : "";
+      const pressed = selectedStyles.includes(style.key) ? "true" : "false";
+      return `
+        <button class="style-choice-card${selected}" type="button" data-style="${style.key}" aria-pressed="${pressed}" style="--i: ${index}">
+          <img src="${style.image}" alt="${style.label}风格预览" />
+          <span>
+            <strong>${style.label}</strong>
+          </span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function updateStyleWallSelection() {
+  if (!styleWallInner) return;
+  styleWallInner.querySelectorAll("[data-style]").forEach((card) => {
+    const selected = selectedStyles.includes(card.dataset.style);
+    card.classList.toggle("is-selected", selected);
+    card.setAttribute("aria-pressed", String(selected));
   });
-  document.querySelector("#newShotButton").hidden = name === "home" || name === "settings";
 }
 
-function setFilmDockExpanded(expanded) {
-  if (!filmDock || !filmToggle) return;
-  filmDock.classList.toggle("is-collapsed", !expanded);
-  filmToggle.setAttribute("aria-expanded", String(expanded));
-  filmToggle.setAttribute("aria-label", expanded ? "收起导航胶卷" : "展开导航胶卷");
+function renderSelectedStyles() {
+  if (!selectedStyleDock) return;
+  selectedStyleDock.innerHTML = selectedStyles
+    .map((key) => {
+      const style = getStyle(key);
+      return `
+        <button class="selected-style-card is-selected" type="button" data-style-preview="${style.key}" aria-label="预览${style.label}">
+          <img src="${style.image}" alt="${style.label}小卡片" />
+          <span>${style.label}</span>
+        </button>
+      `;
+    })
+    .join("");
+  updateSelectedStyleDock();
 }
 
-function showToast(message) {
-  window.clearTimeout(toastTimer);
-  toast.textContent = message;
-  toast.hidden = false;
-  toastTimer = window.setTimeout(() => {
-    toast.hidden = true;
-  }, 2200);
+function updateSelectedStyleDock() {
+  if (!selectedStyleDock) return;
+  const albumOpen = styleAlbumToggle?.getAttribute("aria-expanded") === "true";
+  const filmOpen = !filmDock?.classList.contains("is-collapsed");
+  const shouldShow = styleDockRevealed && selectedStyles.length === 3 && !albumOpen && !filmOpen && !generationStage?.classList.contains("is-running");
+  selectedStyleDock.classList.toggle("is-visible", shouldShow);
 }
 
-function setSaveStatus(message) {
-  saveStatus.textContent = message;
+function toggleStyleSelection(styleKey) {
+  if (selectedStyles.includes(styleKey)) {
+    if (selectedStyles.length === 1) return;
+    selectedStyles = selectedStyles.filter((key) => key !== styleKey);
+  } else if (selectedStyles.length < 3) {
+    selectedStyles = [...selectedStyles, styleKey];
+  } else {
+    selectedStyles = [...selectedStyles.slice(1), styleKey];
+    showToast("已替换最早选择的风格。");
+  }
+  updateStyleWallSelection();
+  renderSelectedStyles();
+  startGenerationButton.hidden = !(sourceReady && selectedStyles.length === 3);
+}
+
+function setAlbumOpen(open) {
+  if (!styleAlbumToggle || !styleWall) return;
+  window.clearTimeout(albumAnimationTimer);
+  if (open) {
+    setFilmDockExpanded(false, { keepDesk: true });
+    renderStyleWall();
+    styleWall.hidden = false;
+    styleWall.classList.remove("is-closing");
+    styleWall.classList.add("is-open");
+  } else {
+    if (selectedStyles.length === 3) styleDockRevealed = true;
+    styleWall.classList.remove("is-open");
+    if (!styleWall.hidden) {
+      styleWall.classList.add("is-closing");
+      albumAnimationTimer = window.setTimeout(() => {
+        styleWall.hidden = true;
+        styleWall.classList.remove("is-closing");
+      }, 620);
+    } else {
+      styleWall.hidden = true;
+      styleWall.classList.remove("is-closing");
+    }
+  }
+  styleAlbumToggle.setAttribute("aria-expanded", String(open));
+  styleAlbumToggle.setAttribute("aria-label", open ? "收起风格影集" : "打开风格影集");
+  updateSelectedStyleDock();
+}
+
+function showStyleFocus(styleKey) {
+  const style = getStyle(styleKey);
+  if (!styleFocus || !styleFocusImage || !styleFocusLabel) return;
+  styleFocusImage.src = style.image;
+  styleFocusImage.alt = `${style.label}风格大图`;
+  styleFocusLabel.textContent = style.label;
+  styleFocus.hidden = false;
+  phoneShell?.classList.add("is-style-focus");
+}
+
+function closeStyleFocus() {
+  if (styleFocus) styleFocus.hidden = true;
+  phoneShell?.classList.remove("is-style-focus");
+}
+
+function closeDetail() {
+  if (detailSheet) detailSheet.hidden = true;
 }
 
 function openDetail(workId = selectedWorkId) {
+  if (!detailSheet || !detailThumbs) return;
   const work = works.find((item) => item.id === workId) || works[0];
   const style = getStyle(work.style);
   selectedWorkId = work.id;
@@ -256,14 +389,11 @@ function openDetail(workId = selectedWorkId) {
   detailSheet.hidden = false;
 }
 
-function closeDetail() {
-  detailSheet.hidden = true;
-}
-
 function openCreate() {
+  if (!createSheet || !styleSelect || !formPreview || !shotTitle || !submitCreate || !titleError) return;
   titleError.hidden = true;
   shotTitle.value = "";
-  styleSelect.value = activeStyle;
+  styleSelect.value = selectedStyles[0] || "pro";
   formPreview.src = getStyle(styleSelect.value).image;
   submitCreate.disabled = false;
   submitCreate.innerHTML = `<svg><use href="#icon-check"></use></svg>保存草稿`;
@@ -272,12 +402,12 @@ function openCreate() {
 }
 
 function closeCreate() {
-  createSheet.hidden = true;
+  if (createSheet) createSheet.hidden = true;
 }
 
 function deleteSelectedWork() {
   works = works.filter((work) => work.id !== selectedWorkId);
-  confirmModal.hidden = true;
+  if (confirmModal) confirmModal.hidden = true;
   closeDetail();
   renderWorks();
   showToast("样张已从列表移除，原图文件已保留。");
@@ -285,7 +415,7 @@ function deleteSelectedWork() {
 
 function addRipple(event) {
   const button = event.target.closest("button");
-  if (!button || button.disabled) return;
+  if (!button || button.disabled || button.classList.contains("share-preview-scrim")) return;
   const rect = button.getBoundingClientRect();
   const ripple = document.createElement("span");
   ripple.className = "ripple";
@@ -309,41 +439,82 @@ function clearGenerationTimers() {
 }
 
 function resetGenerationCards() {
-  generationCards.forEach((card) => {
-    const item = generationQueue.find((queueItem) => queueItem.workId === card.dataset.generationCard);
+  generationCards.forEach((card, index) => {
     card.classList.remove("is-spawned", "is-generating", "is-ready");
-    card.querySelector(".result-time").textContent = item ? `${item.seconds}s` : "";
+    const item = generationTiming[index];
+    const time = card.querySelector(".result-time");
+    if (time) time.textContent = item ? `${item.seconds}s` : "";
   });
 }
 
+function setGenerationImages(group) {
+  if (sourceImage) {
+    sourceImage.src = group.source;
+    sourceImage.alt = `${group.title}原图`;
+  }
+  generationCards.forEach((card, index) => {
+    const output = group.outputs[index] || group.outputs[0];
+    const finalImage = card.querySelector(".final-img");
+    const placeholder = card.querySelector(".placeholder-img");
+    const label = card.querySelector(".result-label");
+    if (finalImage) {
+      finalImage.src = output.image;
+      finalImage.alt = `${output.label}生成结果`;
+    }
+    if (placeholder) placeholder.src = group.source;
+    if (label) label.textContent = output.label;
+  });
+}
+
+function setSourceReady() {
+  sourceReady = true;
+  clearGenerationTimers();
+  setAlbumOpen(false);
+  setFilmDockExpanded(false, { keepDesk: true });
+  resetGenerationCards();
+  const group = createGroup(`draft-${Date.now()}`, "刚上传的原图", "../backup/原图.jpg", selectedStyles);
+  setGenerationImages(group);
+  generationStage.classList.add("has-source");
+  generationStage.classList.remove("is-running", "is-complete", "is-group-view");
+  restartElementAnimation(sourcePhoto);
+  styleDockRevealed = true;
+  startGenerationButton.hidden = selectedStyles.length !== 3;
+  updateSelectedStyleDock();
+  setSaveStatus("等待生成");
+}
+
 function updateGenerationCountdown(startedAt) {
-  const remaining = generationQueue
+  const remaining = generationTiming
     .map((item) => item.seconds - Math.floor((Date.now() - startedAt) / 1000))
     .filter((seconds) => seconds > 0);
   if (!remaining.length) {
-    generationStatus.textContent = "三张都好了";
     window.clearInterval(generationInterval);
     return;
   }
-  generationStatus.textContent = `生成中 ${Math.max(...remaining)}s`;
+  setSaveStatus(`生成中 ${Math.max(...remaining)}s`);
 }
 
 function startGenerationDemo() {
   if (!generationStage) return;
+  if (!sourceReady) setSourceReady();
+
   clearGenerationTimers();
   resetGenerationCards();
-  generationStage.classList.remove("is-running", "is-complete");
+  setFilmDockExpanded(false, { keepDesk: true });
+  setAlbumOpen(false);
+  styleDockRevealed = false;
+  updateSelectedStyleDock();
+
+  const activeGroup = createGroup(`group-${Date.now()}`, "刚刚生成的一组", "../backup/原图.jpg", selectedStyles);
+  setGenerationImages(activeGroup);
+  generationStage.classList.add("has-source", "is-running");
+  generationStage.classList.remove("is-complete", "is-group-view");
+  startGenerationButton.hidden = true;
   restartElementAnimation(sourcePhoto);
-  generationStatus.textContent = "照片已落桌";
   setSaveStatus("正在生成");
 
-  window.setTimeout(() => {
-    generationStage.classList.add("is-running");
-    generationStatus.textContent = "生成中 16s";
-  }, 280);
-
   generationCards.forEach((card, index) => {
-    const item = generationQueue.find((queueItem) => queueItem.workId === card.dataset.generationCard);
+    const item = generationTiming[index];
     generationTimers.push(
       window.setTimeout(() => {
         card.classList.add("is-spawned", "is-generating");
@@ -352,9 +523,11 @@ function startGenerationDemo() {
     generationTimers.push(
       window.setTimeout(() => {
         card.classList.add("is-ready");
-        card.querySelector(".result-time").textContent = "完成";
-        showToast(`${item.label} 已生成`);
-      }, (item.seconds * 1000) + index * 120)
+        const time = card.querySelector(".result-time");
+        const label = card.querySelector(".result-label")?.textContent || "风格";
+        if (time) time.textContent = "完成";
+        showToast(`${label} 已生成`);
+      }, item.seconds * 1000 + index * 120)
     );
   });
 
@@ -365,32 +538,286 @@ function startGenerationDemo() {
   generationTimers.push(
     window.setTimeout(() => {
       generationStage.classList.add("is-complete");
-      generationStatus.textContent = "三张都好了";
+      generationStage.classList.remove("is-running");
       setSaveStatus("本地已保存");
+      generationGroups = [activeGroup, ...generationGroups].slice(0, 8);
+      activeGroupIndex = 0;
+      filmWindowStart = 0;
+      renderFilmFrames();
+      styleDockRevealed = true;
+      updateSelectedStyleDock();
     }, 16400)
   );
 }
 
-if (styleRail) {
-  styleRail.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-style]");
-    if (!card) return;
-    setActiveStyle(card.dataset.style);
+function renderFilmFrames() {
+  if (!filmStrip) return;
+  const image = filmStrip.querySelector(".film-strip-image");
+  const maxStart = Math.max(0, generationGroups.length - 4);
+  filmWindowStart = Math.min(Math.max(0, filmWindowStart), maxStart);
+  const visible = generationGroups.slice(filmWindowStart, filmWindowStart + 4);
+  filmStrip.innerHTML = "";
+  if (image) filmStrip.appendChild(image);
+  visible.forEach((group, index) => {
+    const button = document.createElement("button");
+    button.className = `nav-item film-frame${filmWindowStart + index === activeGroupIndex ? " is-active" : ""}`;
+    button.type = "button";
+    button.dataset.groupIndex = String(filmWindowStart + index);
+    button.setAttribute("aria-label", `查看第 ${filmWindowStart + index + 1} 组`);
+    button.innerHTML = `<img src="${group.source}" alt="" />`;
+    filmStrip.appendChild(button);
   });
 }
 
-document.querySelectorAll(".nav-item").forEach((button) => {
-  button.addEventListener("click", () => {
-    setPanel(button.dataset.target);
-    setFilmDockExpanded(false);
+function selectGroup(index) {
+  if (!generationGroups.length) return;
+  activeGroupIndex = Math.min(Math.max(0, index), generationGroups.length - 1);
+  if (activeGroupIndex <= 0) {
+    filmWindowStart = 0;
+  } else {
+    const maxStart = Math.max(0, generationGroups.length - 4);
+    filmWindowStart = Math.min(activeGroupIndex - 1, maxStart);
+  }
+  setGroupOnDesk(generationGroups[activeGroupIndex]);
+  renderFilmFrames();
+}
+
+function setGroupOnDesk(group) {
+  clearGenerationTimers();
+  setGenerationImages(group);
+  sourceReady = false;
+  generationStage.classList.add("has-source", "is-complete", "is-group-view");
+  generationStage.classList.remove("is-running");
+  generationCards.forEach((card) => {
+    card.classList.add("is-spawned", "is-ready");
+    card.classList.remove("is-generating");
+    const time = card.querySelector(".result-time");
+    if (time) time.textContent = "完成";
+  });
+  startGenerationButton.hidden = true;
+  updateSelectedStyleDock();
+}
+
+function setFilmDockExpanded(expanded, options = {}) {
+  if (!filmDock || !filmToggle) return;
+  filmDock.classList.toggle("is-collapsed", !expanded);
+  filmDock.classList.toggle("is-peek", expanded);
+  filmDock.classList.remove("is-dragging");
+  filmStrip?.style.removeProperty("--film-drag-x");
+  filmToggle.setAttribute("aria-expanded", String(expanded));
+  filmToggle.setAttribute("aria-label", expanded ? "收起生成组胶卷" : "展开生成组胶卷");
+  if (expanded) {
+    setAlbumOpen(false);
+    styleDockRevealed = false;
+    selectGroup(activeGroupIndex);
+  } else if (!options.keepDesk) {
+    clearGenerationTimers();
+    sourceReady = false;
+    generationStage.classList.remove("has-source", "is-running", "is-complete", "is-group-view");
+    resetGenerationCards();
+    startGenerationButton.hidden = true;
+    styleDockRevealed = true;
+    setSaveStatus("本地已保存");
+  }
+  updateSelectedStyleDock();
+}
+
+function resetFilmDrag() {
+  filmPointerStartX = null;
+  filmPointerLastX = null;
+  filmPointerMoved = false;
+  filmPeekRevealedDuringDrag = false;
+  filmMovedGroupDuringDrag = false;
+  filmDock?.classList.remove("is-dragging");
+  filmStrip?.style.removeProperty("--film-drag-x");
+  window.removeEventListener("pointermove", handleFilmPointerMove);
+  window.removeEventListener("pointerup", handleFilmPointerEnd);
+  window.removeEventListener("pointercancel", resetFilmDrag);
+}
+
+function handleFilmPointerMove(event) {
+  if (filmPointerStartX === null || !filmStrip) return;
+  const delta = event.clientX - filmPointerStartX;
+  filmPointerLastX = event.clientX;
+  if (Math.abs(delta) > 4) filmPointerMoved = true;
+  const offset = Math.max(-22, Math.min(8, delta * 0.28));
+  filmStrip.style.setProperty("--film-drag-x", `${offset}px`);
+  if (filmDock?.classList.contains("is-peek") && delta < -26) {
+    filmDock.classList.remove("is-peek");
+    filmPeekRevealedDuringDrag = true;
+  }
+  if (!filmDock?.classList.contains("is-peek") && !filmPeekRevealedDuringDrag && !filmMovedGroupDuringDrag) {
+    if (delta < -72) {
+      selectGroup(activeGroupIndex + 1);
+      filmMovedGroupDuringDrag = true;
+      filmPointerStartX = event.clientX;
+    } else if (delta > 72) {
+      selectGroup(activeGroupIndex - 1);
+      filmMovedGroupDuringDrag = true;
+      filmPointerStartX = event.clientX;
+    }
+  }
+}
+
+function handleFilmPointerEnd(event) {
+  if (filmPointerStartX === null || !filmStrip) return;
+  const delta = (filmPointerLastX ?? event.clientX) - filmPointerStartX;
+  if (filmPointerMoved) {
+    filmClickSuppressed = true;
+    window.setTimeout(() => {
+      filmClickSuppressed = false;
+    }, 180);
+  }
+  filmDock?.classList.remove("is-dragging");
+  filmStrip.style.removeProperty("--film-drag-x");
+  filmPointerStartX = null;
+  filmPointerLastX = null;
+  const revealedOnly = filmPeekRevealedDuringDrag;
+  const movedGroup = filmMovedGroupDuringDrag;
+  filmPointerMoved = false;
+  filmPeekRevealedDuringDrag = false;
+  filmMovedGroupDuringDrag = false;
+  window.removeEventListener("pointermove", handleFilmPointerMove);
+  window.removeEventListener("pointerup", handleFilmPointerEnd);
+  window.removeEventListener("pointercancel", resetFilmDrag);
+  if (Math.abs(delta) < 28) return;
+  if (movedGroup) return;
+  if (revealedOnly) return;
+  selectGroup(activeGroupIndex + (delta < 0 ? 1 : -1));
+}
+
+function openSharePreview(imageSrc, label = "照片") {
+  if (!sharePreview || !shareImage || !shareCopy) return;
+  shareImage.src = imageSrc;
+  shareImage.alt = `${label}发布预览`;
+  shareCopy.textContent = `${label}像从旧相册里翻出来的一小段日常。光线落得刚刚好，画面安静，却有一种很适合发小红书的温度。`;
+  sharePreview.hidden = false;
+}
+
+function closeSharePreview() {
+  if (sharePreview) sharePreview.hidden = true;
+}
+
+async function handleShareAction(action) {
+  if (action === "copy-text") {
+    try {
+      await navigator.clipboard.writeText(shareCopy.textContent);
+      showToast("文案已复制。");
+    } catch {
+      showToast("文案已准备好，可以手动复制。");
+    }
+    return;
+  }
+  if (action === "copy-image") {
+    showToast("图片复制功能会在接入原生能力后启用。");
+    return;
+  }
+  if (action === "download-image") {
+    const link = document.createElement("a");
+    link.href = shareImage.src;
+    link.download = "triple-shot.jpg";
+    link.click();
+    showToast("已开始下载图片。");
+  }
+}
+
+styleAlbumToggle?.addEventListener("click", () => {
+  const open = styleAlbumToggle.getAttribute("aria-expanded") !== "true";
+  setAlbumOpen(open);
+});
+
+styleWallInner?.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-style]");
+  if (!card) return;
+  toggleStyleSelection(card.dataset.style);
+});
+
+selectedStyleDock?.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-style-preview]");
+  if (!card) return;
+  showStyleFocus(card.dataset.stylePreview);
+});
+
+styleFocus?.addEventListener("click", closeStyleFocus);
+styleFocusCard?.addEventListener("click", closeStyleFocus);
+
+document.addEventListener(
+  "click",
+  (event) => {
+    if (!styleFocus || styleFocus.hidden) return;
+    if (event.target.closest("#styleFocus")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeStyleFocus();
+  },
+  true
+);
+
+takePhotoButton?.addEventListener("click", setSourceReady);
+fakeUploadButton?.addEventListener("click", setSourceReady);
+startGenerationButton?.addEventListener("click", startGenerationDemo);
+
+filmToggle?.addEventListener("click", () => {
+  if (styleFocus && !styleFocus.hidden) return;
+  setFilmDockExpanded(filmDock.classList.contains("is-collapsed"));
+});
+
+filmStrip?.addEventListener("click", (event) => {
+  if (styleFocus && !styleFocus.hidden) return;
+  if (filmClickSuppressed) {
+    filmClickSuppressed = false;
+    return;
+  }
+  const frame = event.target.closest("[data-group-index]");
+  if (!frame) return;
+  selectGroup(Number(frame.dataset.groupIndex));
+});
+
+filmStrip?.addEventListener("dragstart", (event) => {
+  event.preventDefault();
+});
+
+filmStrip?.addEventListener("pointerdown", (event) => {
+  if (styleFocus && !styleFocus.hidden) return;
+  if (filmDock?.classList.contains("is-collapsed")) return;
+  filmPointerStartX = event.clientX;
+  filmPointerLastX = event.clientX;
+  filmPointerMoved = false;
+  filmPeekRevealedDuringDrag = false;
+  filmMovedGroupDuringDrag = false;
+  filmDock?.classList.add("is-dragging");
+  window.addEventListener("pointermove", handleFilmPointerMove);
+  window.addEventListener("pointerup", handleFilmPointerEnd);
+  window.addEventListener("pointercancel", resetFilmDrag);
+});
+
+
+sourcePhoto?.addEventListener("click", () => {
+  if (!generationStage.classList.contains("has-source")) return;
+  openSharePreview(sourceImage.src, "原图");
+});
+
+generationCards.forEach((card) => {
+  card.addEventListener("click", () => {
+    if (!card.classList.contains("is-ready")) {
+      showToast("还在生成，先看模糊预览。");
+      return;
+    }
+    const finalImage = card.querySelector(".final-img");
+    const label = card.querySelector(".result-label")?.textContent || "生成图";
+    openSharePreview(finalImage.src, label);
   });
 });
 
-if (filmDock && filmToggle) {
-  filmToggle.addEventListener("click", () => {
-    setFilmDockExpanded(filmDock.classList.contains("is-collapsed"));
-  });
-}
+sharePreview?.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-share-action]");
+  if (!actionButton) {
+    closeSharePreview();
+    return;
+  }
+  event.stopPropagation();
+  handleShareAction(actionButton.dataset.shareAction);
+});
 
 document.querySelectorAll(".filter-chip").forEach((button) => {
   button.addEventListener("click", () => {
@@ -402,15 +829,15 @@ document.querySelectorAll(".filter-chip").forEach((button) => {
   });
 });
 
-searchInput.addEventListener("input", () => renderWorks());
+searchInput?.addEventListener("input", () => renderWorks());
 
-workList.addEventListener("click", (event) => {
+workList?.addEventListener("click", (event) => {
   const card = event.target.closest("[data-work]");
   if (!card) return;
   openDetail(card.dataset.work);
 });
 
-detailThumbs.addEventListener("click", (event) => {
+detailThumbs?.addEventListener("click", (event) => {
   const thumb = event.target.closest("[data-detail-style]");
   if (!thumb) return;
   const style = getStyle(thumb.dataset.detailStyle);
@@ -421,24 +848,12 @@ detailThumbs.addEventListener("click", (event) => {
   });
 });
 
-document.querySelector("#showDetailFromHome").addEventListener("click", () => openDetail());
-document.querySelector("#fakeUpload").addEventListener("click", startGenerationDemo);
-document.querySelector("#restartGeneration").addEventListener("click", startGenerationDemo);
-generationCards.forEach((card) => {
-  card.addEventListener("click", () => {
-    if (!card.classList.contains("is-ready")) {
-      showToast("还在生成，先看模糊预览。");
-      return;
-    }
-    openDetail(card.dataset.generationCard);
-  });
-});
-document.querySelector("#newShotButton").addEventListener("click", openCreate);
-document.querySelector("#openCreateFromDrop").addEventListener("click", openCreate);
-document.querySelector("[data-close-sheet]").addEventListener("click", closeDetail);
-document.querySelector("[data-close-create]").addEventListener("click", closeCreate);
+document.querySelector("#newShotButton")?.addEventListener("click", openCreate);
+document.querySelector("#openCreateFromDrop")?.addEventListener("click", openCreate);
+document.querySelector("[data-close-sheet]")?.addEventListener("click", closeDetail);
+document.querySelector("[data-close-create]")?.addEventListener("click", closeCreate);
 
-document.querySelector("#saveWork").addEventListener("click", () => {
+document.querySelector("#saveWork")?.addEventListener("click", () => {
   setSaveStatus("正在写入本地");
   showToast("保存中，列表状态会自动更新。");
   window.setTimeout(() => {
@@ -447,21 +862,21 @@ document.querySelector("#saveWork").addEventListener("click", () => {
   }, 900);
 });
 
-document.querySelector("#deleteWork").addEventListener("click", () => {
-  confirmModal.hidden = false;
+document.querySelector("#deleteWork")?.addEventListener("click", () => {
+  if (confirmModal) confirmModal.hidden = false;
 });
 
-document.querySelector("#cancelDelete").addEventListener("click", () => {
-  confirmModal.hidden = true;
+document.querySelector("#cancelDelete")?.addEventListener("click", () => {
+  if (confirmModal) confirmModal.hidden = true;
 });
 
-document.querySelector("#confirmDelete").addEventListener("click", deleteSelectedWork);
+document.querySelector("#confirmDelete")?.addEventListener("click", deleteSelectedWork);
 
-styleSelect.addEventListener("change", () => {
+styleSelect?.addEventListener("change", () => {
   formPreview.src = getStyle(styleSelect.value).image;
 });
 
-document.querySelector("#createForm").addEventListener("submit", (event) => {
+document.querySelector("#createForm")?.addEventListener("submit", (event) => {
   event.preventDefault();
   const title = shotTitle.value.trim();
   if (!title) {
@@ -495,7 +910,7 @@ document.querySelector("#createForm").addEventListener("submit", (event) => {
   }, 850);
 });
 
-document.querySelector("#retryDraft").addEventListener("click", () => {
+document.querySelector("#retryDraft")?.addEventListener("click", () => {
   errorCard.hidden = true;
   draftSkeleton.hidden = false;
   setSaveStatus("正在恢复草稿");
@@ -506,7 +921,7 @@ document.querySelector("#retryDraft").addEventListener("click", () => {
   }, 1100);
 });
 
-document.querySelector("#refreshDemo").addEventListener("click", () => {
+document.querySelector("#refreshDemo")?.addEventListener("click", () => {
   setSaveStatus("正在刷新");
   renderWorks({ loading: true });
   window.setTimeout(() => {
@@ -520,23 +935,31 @@ document.addEventListener("click", addRipple);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  detailSheet.hidden = true;
-  createSheet.hidden = true;
-  confirmModal.hidden = true;
+  closeSharePreview();
+  closeStyleFocus();
+  closeDetail();
+  closeCreate();
+  if (confirmModal) confirmModal.hidden = true;
+  setAlbumOpen(false);
 });
 
-detailSheet.addEventListener("click", (event) => {
+detailSheet?.addEventListener("click", (event) => {
   if (event.target === detailSheet) closeDetail();
 });
 
-createSheet.addEventListener("click", (event) => {
+createSheet?.addEventListener("click", (event) => {
   if (event.target === createSheet) closeCreate();
 });
 
-confirmModal.addEventListener("click", (event) => {
+confirmModal?.addEventListener("click", (event) => {
   if (event.target === confirmModal) confirmModal.hidden = true;
 });
 
-renderStyleRail();
+renderStyleWall();
+renderSelectedStyles();
 renderWorks();
-startGenerationDemo();
+renderFilmFrames();
+resetGenerationCards();
+setFilmDockExpanded(false, { keepDesk: true });
+startGenerationButton.hidden = true;
+setSaveStatus("本地已保存");
