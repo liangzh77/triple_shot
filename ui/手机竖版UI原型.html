@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Triple Shot 手机竖版 UI 原型</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2333261b'/%3E%3Cpath d='M4 5h8v6H4z' fill='%23f1c15b'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./手机竖版UI原型.css" />
+    <link rel="stylesheet" href="./手机竖版UI原型.css?v=film-sequence-20260612b" />
   </head>
   <body>
     <svg aria-hidden="true" class="svg-sprite">
@@ -244,19 +244,20 @@
       <nav class="film-dock is-collapsed" id="filmDock" aria-label="生成组胶卷">
         <span class="film-leader" aria-hidden="true"></span>
         <div class="film-strip" id="filmStrip">
-          <img class="film-strip-image" src="./assets/胶卷5.jpg" alt="" aria-hidden="true" />
-          <button class="nav-item film-frame is-active" type="button" data-group-index="0" aria-label="查看第 1 组">
-            <img src="../backup/原图.jpg" alt="" />
-          </button>
-          <button class="nav-item film-frame" type="button" data-group-index="1" aria-label="查看第 2 组">
-            <img src="../backup/专业摄影.jpg" alt="" />
-          </button>
-          <button class="nav-item film-frame" type="button" data-group-index="2" aria-label="查看第 3 组">
-            <img src="../backup/吉卜力.jpg" alt="" />
-          </button>
-          <button class="nav-item film-frame" type="button" data-group-index="3" aria-label="查看第 4 组">
-            <img src="../backup/水彩.jpg" alt="" />
-          </button>
+          <div class="film-track" id="filmTrack">
+            <button class="nav-item film-frame is-active" type="button" data-group-index="0" aria-label="查看第 1 组">
+              <img src="../backup/原图.jpg" alt="" />
+            </button>
+            <button class="nav-item film-frame" type="button" data-group-index="1" aria-label="查看第 2 组">
+              <img src="../backup/专业摄影.jpg" alt="" />
+            </button>
+            <button class="nav-item film-frame" type="button" data-group-index="2" aria-label="查看第 3 组">
+              <img src="../backup/吉卜力.jpg" alt="" />
+            </button>
+            <button class="nav-item film-frame" type="button" data-group-index="3" aria-label="查看第 4 组">
+              <img src="../backup/水彩.jpg" alt="" />
+            </button>
+          </div>
         </div>
         <button class="film-roll" id="filmToggle" type="button" aria-label="展开导航胶卷" aria-expanded="false" aria-controls="filmStrip">
           <img class="film-roll-image" src="./assets/胶卷4-透明.png" alt="" aria-hidden="true" />
@@ -367,6 +368,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="./手机竖版UI原型.js"></script>
+    <script src="./手机竖版UI原型.js?v=film-sequence-20260612b"></script>
   </body>
 </html>

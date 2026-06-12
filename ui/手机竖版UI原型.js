@@ -96,7 +96,6 @@ let selectedStyles = ["pro", "anime", "watercolor"];
 let activeFilter = "all";
 let selectedWorkId = works[0].id;
 let activeGroupIndex = 0;
-let filmWindowStart = 0;
 let albumAnimationTimer;
 let toastTimer;
 let generationInterval;
@@ -105,12 +104,18 @@ let styleDockRevealed = false;
 let sourceReady = false;
 let filmPointerStartX = null;
 let filmPointerLastX = null;
-let filmPointerLastTime = 0;
-let filmPointerVelocity = 0;
+let filmPointerStartFrames = 2.5;
 let filmPointerMoved = false;
 let filmClickSuppressed = false;
-let filmPeekRevealedDuringDrag = false;
-let filmMovedGroupDuringDrag = false;
+let filmPulledFrames = 2.5;
+let styleFocusOriginElement = null;
+let styleFocusClosing = false;
+let sharePreviewOriginElement = null;
+let sharePreviewClosing = false;
+let deskFlightRunning = false;
+let filmDockAnimating = false;
+
+const FILM_MIN_VISIBLE_FRAMES = 2.5;
 
 const workList = document.querySelector("#workList");
 const searchInput = document.querySelector("#searchInput");
@@ -119,6 +124,7 @@ const phoneShell = document.querySelector(".phone-shell");
 const filmDock = document.querySelector("#filmDock");
 const filmToggle = document.querySelector("#filmToggle");
 const filmStrip = document.querySelector("#filmStrip");
+const filmTrack = document.querySelector("#filmTrack");
 const generationStage = document.querySelector(".generation-stage");
 const sourcePhoto = document.querySelector("#sourcePhoto");
 const sourceImage = sourcePhoto?.querySelector("img");
@@ -153,6 +159,7 @@ const errorCard = document.querySelector("#errorCard");
 const draftSkeleton = document.querySelector("#draftSkeleton");
 const sharePreview = document.querySelector("#sharePreview");
 const sharePreviewScrim = document.querySelector("#sharePreviewScrim");
+const shareCard = document.querySelector(".share-card");
 const shareCopy = document.querySelector("#shareCopy");
 const shareImage = document.querySelector("#shareImage");
 
@@ -195,6 +202,169 @@ function showToast(message) {
 
 function setSaveStatus(message) {
   if (saveStatus) saveStatus.textContent = message;
+}
+
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function cleanCloneIds(element) {
+  element.removeAttribute("id");
+  element.classList.remove("is-flight-hidden");
+  element.querySelectorAll?.("[id]").forEach((item) => item.removeAttribute("id"));
+  element.querySelectorAll?.(".is-flight-hidden").forEach((item) => item.classList.remove("is-flight-hidden"));
+}
+
+function visibleRect(element) {
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return rect;
+}
+
+function getElementRotation(element) {
+  const transform = getComputedStyle(element).transform;
+  if (!transform || transform === "none") return 0;
+  const matrix3d = transform.match(/matrix3d\(([^)]+)\)/)?.[1]?.split(",").map(Number);
+  if (matrix3d && matrix3d.length >= 16) {
+    return Math.atan2(matrix3d[1], matrix3d[0]) * (180 / Math.PI);
+  }
+  const values = transform.match(/matrix\(([^)]+)\)/)?.[1]?.split(",").map(Number);
+  if (!values || values.length < 4) return 0;
+  return Math.atan2(values[1], values[0]) * (180 / Math.PI);
+}
+
+function createFlightGhost(sourceElement, templateElement = sourceElement) {
+  const rect = visibleRect(sourceElement);
+  if (!rect) return null;
+  const ghost = templateElement.cloneNode(true);
+  cleanCloneIds(ghost);
+  ghost.classList.add("fly-ghost");
+  ghost.setAttribute("aria-hidden", "true");
+  const rotation = getElementRotation(templateElement);
+  Object.assign(ghost.style, {
+    position: "fixed",
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    margin: "0",
+    transform: `rotate(${rotation}deg)`,
+    transformOrigin: "center center",
+    zIndex: "80",
+    pointerEvents: "none"
+  });
+  document.body.appendChild(ghost);
+  return { ghost, rect, rotation };
+}
+
+async function flyElementBetween(sourceElement, targetElement, options = {}) {
+  const start = createFlightGhost(sourceElement, options.templateElement || targetElement);
+  const endRect = visibleRect(targetElement);
+  if (!start || !endRect) return;
+  if (options.hideSource) sourceElement.classList.add("is-flight-hidden");
+  const { ghost, rect: startRect, rotation } = start;
+  const duration = options.duration ?? 460;
+  const delay = options.delay ?? 0;
+  const easing = options.easing ?? "cubic-bezier(0.16, 1, 0.3, 1)";
+  try {
+    await ghost
+      .animate(
+        [
+          {
+            left: `${startRect.left}px`,
+            top: `${startRect.top}px`,
+            width: `${startRect.width}px`,
+            height: `${startRect.height}px`,
+            opacity: 1,
+            filter: "saturate(1)",
+            transform: `rotate(${rotation}deg)`
+          },
+          {
+            left: `${endRect.left}px`,
+            top: `${endRect.top}px`,
+            width: `${endRect.width}px`,
+            height: `${endRect.height}px`,
+            opacity: options.fadeOut ? 0 : 1,
+            filter: "saturate(1.06)",
+            transform: `rotate(${rotation}deg)`
+          }
+        ],
+        { duration, delay, easing, fill: "forwards" }
+      ).finished;
+  } catch {
+    // Animations can be canceled during fast repeated taps; the UI state below still resolves.
+  } finally {
+    if (options.revealTarget) {
+      targetElement.classList.remove("is-flight-hidden");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    ghost.remove();
+  }
+}
+
+function getDeskPhotoElements() {
+  return [sourcePhoto, ...generationCards].filter(Boolean);
+}
+
+function isDeskPhotoVisible() {
+  return generationStage?.classList.contains("has-source");
+}
+
+function clearDeskPhotos() {
+  clearGenerationTimers();
+  sourceReady = false;
+  generationStage?.classList.remove("has-source", "is-running", "is-complete", "is-group-view");
+  resetGenerationCards();
+  if (startGenerationButton) startGenerationButton.hidden = true;
+}
+
+async function flyDeskPhotosTo(targetElement, { clearAfter = true, collapseFilmAfter = false } = {}) {
+  if (!targetElement || !isDeskPhotoVisible() || deskFlightRunning) return;
+  deskFlightRunning = true;
+  const elements = getDeskPhotoElements().filter((element) => visibleRect(element));
+  await Promise.all(
+    elements.map((element, index) =>
+      flyElementBetween(element, targetElement, {
+        hideSource: true,
+        fadeOut: true,
+        templateElement: element,
+        duration: 360,
+        delay: index * 34
+      })
+    )
+  );
+  if (clearAfter) clearDeskPhotos();
+  elements.forEach((element) => element.classList.remove("is-flight-hidden"));
+  if (collapseFilmAfter) filmDock?.classList.add("is-collapsed");
+  deskFlightRunning = false;
+  updateSelectedStyleDock();
+}
+
+async function flyDeskPhotosFrom(sourceElement) {
+  if (!sourceElement) return;
+  const candidates = getDeskPhotoElements();
+  candidates.forEach((element) => element.classList.add("is-flight-hidden"));
+  await nextFrame();
+  const elements = candidates.filter((element) => visibleRect(element));
+  await Promise.all(
+    elements.map((element, index) =>
+      flyElementBetween(sourceElement, element, {
+        duration: 430,
+        delay: index * 46,
+        revealTarget: true
+      })
+    )
+  );
+  candidates.forEach((element) => element.classList.remove("is-flight-hidden"));
+}
+
+function isAlbumOpen() {
+  return styleAlbumToggle?.getAttribute("aria-expanded") === "true";
 }
 
 function makeStatus(status) {
@@ -335,6 +505,9 @@ function setAlbumOpen(open) {
   if (!styleAlbumToggle || !styleWall) return;
   window.clearTimeout(albumAnimationTimer);
   if (open) {
+    if (isDeskPhotoVisible()) {
+      flyDeskPhotosTo(styleAlbumToggle, { clearAfter: true });
+    }
     setFilmDockExpanded(false, { keepDesk: true });
     renderStyleWall();
     styleWall.hidden = false;
@@ -361,19 +534,39 @@ function setAlbumOpen(open) {
   updateSelectedStyleDock();
 }
 
-function showStyleFocus(styleKey) {
+async function showStyleFocus(styleKey, originElement = null) {
   const style = getStyle(styleKey);
   if (!styleFocus || !styleFocusImage || !styleFocusLabel) return;
+  styleFocusOriginElement = originElement;
   styleFocusImage.src = style.image;
   styleFocusImage.alt = `${style.label}风格大图`;
   styleFocusLabel.textContent = style.label;
   styleFocus.hidden = false;
   phoneShell?.classList.add("is-style-focus");
+  if (originElement && visibleRect(originElement)) {
+    styleFocusCard?.classList.add("is-flight-hidden");
+    await nextFrame();
+    await flyElementBetween(originElement, styleFocusCard, {
+      duration: 420,
+      hideSource: true,
+      revealTarget: true
+    });
+  }
 }
 
-function closeStyleFocus() {
-  if (styleFocus) styleFocus.hidden = true;
+async function closeStyleFocus() {
+  if (!styleFocus || styleFocus.hidden || styleFocusClosing) return;
+  styleFocusClosing = true;
+  const origin = styleFocusOriginElement;
+  if (origin && document.body.contains(origin) && visibleRect(origin)) {
+    await flyElementBetween(styleFocusCard, origin, { duration: 360, fadeOut: true, hideSource: true });
+  }
+  origin?.classList.remove("is-flight-hidden");
+  styleFocus.hidden = true;
+  styleFocusCard?.classList.remove("is-flight-hidden");
   phoneShell?.classList.remove("is-style-focus");
+  styleFocusOriginElement = null;
+  styleFocusClosing = false;
 }
 
 function closeDetail() {
@@ -553,7 +746,7 @@ function startGenerationDemo() {
       setSaveStatus("本地已保存");
       generationGroups = [activeGroup, ...generationGroups].slice(0, 8);
       activeGroupIndex = 0;
-      filmWindowStart = 0;
+      setFilmPulledFrames(FILM_MIN_VISIBLE_FRAMES);
       renderFilmFrames();
       styleDockRevealed = true;
       updateSelectedStyleDock();
@@ -561,39 +754,58 @@ function startGenerationDemo() {
   );
 }
 
+function clampFilmPull(value) {
+  const max = Math.max(1, generationGroups.length);
+  const min = Math.min(FILM_MIN_VISIBLE_FRAMES, max);
+  return Math.min(Math.max(value, min), max);
+}
+
+function setFilmPulledFrames(value) {
+  filmPulledFrames = clampFilmPull(value);
+  filmDock?.style.setProperty("--film-visible-frames", filmPulledFrames.toFixed(3));
+}
+
+function getFilmFrameWidth() {
+  const frame = filmTrack?.querySelector(".film-frame");
+  return frame?.getBoundingClientRect().width || 68;
+}
+
+function getFilmFrameIndexFromPoint(clientX) {
+  if (!filmStrip) return null;
+  const stripBox = filmStrip.getBoundingClientRect();
+  const localX = clientX - stripBox.left;
+  if (localX < 0 || localX > stripBox.width) return null;
+  const index = Math.floor(localX / getFilmFrameWidth());
+  return index >= 0 && index < generationGroups.length ? index : null;
+}
+
 function renderFilmFrames() {
-  if (!filmStrip) return;
-  const image = filmStrip.querySelector(".film-strip-image");
-  const maxStart = Math.max(0, generationGroups.length - 4);
-  filmWindowStart = Math.min(Math.max(0, filmWindowStart), maxStart);
-  const visible = generationGroups.slice(filmWindowStart, filmWindowStart + 4);
-  filmStrip.innerHTML = "";
-  if (image) filmStrip.appendChild(image);
-  visible.forEach((group, index) => {
+  if (!filmTrack) return;
+  setFilmPulledFrames(filmPulledFrames);
+  filmTrack.innerHTML = "";
+  generationGroups.forEach((group, index) => {
     const button = document.createElement("button");
-    button.className = `nav-item film-frame${filmWindowStart + index === activeGroupIndex ? " is-active" : ""}`;
+    button.className = `nav-item film-frame${index === activeGroupIndex ? " is-active" : ""}`;
     button.type = "button";
-    button.dataset.groupIndex = String(filmWindowStart + index);
-    button.setAttribute("aria-label", `查看第 ${filmWindowStart + index + 1} 组`);
+    button.dataset.groupIndex = String(index);
+    button.setAttribute("aria-label", `查看第 ${index + 1} 组`);
     button.innerHTML = `<img src="${group.source}" alt="" />`;
-    filmStrip.appendChild(button);
+    filmTrack.appendChild(button);
   });
 }
 
 function selectGroup(index) {
   if (!generationGroups.length) return;
+  const hadDeskPhotos = isDeskPhotoVisible();
   activeGroupIndex = Math.min(Math.max(0, index), generationGroups.length - 1);
-  if (activeGroupIndex <= 0) {
-    filmWindowStart = 0;
-  } else {
-    const maxStart = Math.max(0, generationGroups.length - 4);
-    filmWindowStart = Math.min(activeGroupIndex - 1, maxStart);
-  }
-  setGroupOnDesk(generationGroups[activeGroupIndex]);
   renderFilmFrames();
+  const sourceFrame = filmTrack?.querySelector(`[data-group-index="${activeGroupIndex}"]`);
+  setGroupOnDesk(generationGroups[activeGroupIndex], {
+    animateFromElement: hadDeskPhotos ? null : sourceFrame
+  });
 }
 
-function setGroupOnDesk(group) {
+function setGroupOnDesk(group, options = {}) {
   clearGenerationTimers();
   setGenerationImages(group);
   sourceReady = false;
@@ -607,21 +819,44 @@ function setGroupOnDesk(group) {
   });
   startGenerationButton.hidden = true;
   updateSelectedStyleDock();
+  if (options.animateFromElement) {
+    flyDeskPhotosFrom(options.animateFromElement);
+  }
 }
 
-function setFilmDockExpanded(expanded, options = {}) {
+async function setFilmDockExpanded(expanded, options = {}) {
   if (!filmDock || !filmToggle) return;
-  filmDock.classList.toggle("is-collapsed", !expanded);
-  filmDock.classList.toggle("is-peek", expanded);
-  filmDock.classList.remove("is-dragging", "is-momentum");
-  filmStrip?.style.removeProperty("--film-drag-x");
+  if (filmDockAnimating) return;
+  filmDock.classList.remove("is-dragging");
   filmToggle.setAttribute("aria-expanded", String(expanded));
   filmToggle.setAttribute("aria-label", expanded ? "收起生成组胶卷" : "展开生成组胶卷");
   if (expanded) {
+    filmDockAnimating = true;
     setAlbumOpen(false);
     styleDockRevealed = false;
-    selectGroup(activeGroupIndex);
+    activeGroupIndex = 0;
+    setFilmPulledFrames(FILM_MIN_VISIBLE_FRAMES);
+    renderFilmFrames();
+    filmDock.classList.remove("is-collapsed");
+    await delay(320);
+    const sourceFrame = filmTrack?.querySelector(`[data-group-index="${activeGroupIndex}"]`);
+    setGroupOnDesk(generationGroups[activeGroupIndex], {
+      animateFromElement: sourceFrame
+    });
+    filmDockAnimating = false;
   } else if (!options.keepDesk) {
+    if (isDeskPhotoVisible()) {
+      filmDockAnimating = true;
+      setFilmPulledFrames(Math.max(filmPulledFrames, activeGroupIndex + 1));
+      renderFilmFrames();
+      const targetFrame = filmTrack?.querySelector(`[data-group-index="${activeGroupIndex}"]`) || filmToggle;
+      await flyDeskPhotosTo(targetFrame, { clearAfter: true });
+      filmDock.classList.add("is-collapsed");
+      filmDockAnimating = false;
+      updateSelectedStyleDock();
+      return;
+    }
+    filmDock.classList.add("is-collapsed");
     clearGenerationTimers();
     sourceReady = false;
     generationStage.classList.remove("has-source", "is-running", "is-complete", "is-group-view");
@@ -629,6 +864,8 @@ function setFilmDockExpanded(expanded, options = {}) {
     startGenerationButton.hidden = true;
     styleDockRevealed = true;
     setSaveStatus("本地已保存");
+  } else {
+    filmDock.classList.add("is-collapsed");
   }
   updateSelectedStyleDock();
 }
@@ -636,62 +873,41 @@ function setFilmDockExpanded(expanded, options = {}) {
 function resetFilmDrag() {
   filmPointerStartX = null;
   filmPointerLastX = null;
-  filmPointerLastTime = 0;
-  filmPointerVelocity = 0;
+  filmPointerStartFrames = filmPulledFrames;
   filmPointerMoved = false;
-  filmPeekRevealedDuringDrag = false;
-  filmMovedGroupDuringDrag = false;
-  filmDock?.classList.remove("is-dragging", "is-momentum");
-  filmStrip?.style.removeProperty("--film-drag-x");
+  filmDock?.classList.remove("is-dragging");
   window.removeEventListener("pointermove", handleFilmPointerMove);
   window.removeEventListener("pointerup", handleFilmPointerEnd);
   window.removeEventListener("pointercancel", resetFilmDrag);
 }
 
-function glideFilmToGroup(stepCount) {
-  if (!filmStrip || !stepCount) return;
-  const maxIndex = generationGroups.length - 1;
-  const targetIndex = Math.min(Math.max(0, activeGroupIndex + stepCount), maxIndex);
-  const actualStep = targetIndex - activeGroupIndex;
-  if (!actualStep) return;
-  const direction = actualStep > 0 ? -1 : 1;
-  const distance = Math.min(156, 76 + Math.abs(actualStep) * 38);
-  filmClickSuppressed = true;
-  filmDock?.classList.remove("is-dragging");
-  filmDock?.classList.add("is-momentum");
-  filmStrip.style.setProperty("--film-drag-x", `${direction * distance}px`);
-  window.setTimeout(() => {
-    selectGroup(targetIndex);
-    filmStrip.style.removeProperty("--film-drag-x");
-    filmDock?.classList.remove("is-momentum");
-  }, 320);
-  window.setTimeout(() => {
-    filmClickSuppressed = false;
-  }, 420);
+function beginFilmDrag(clientX) {
+  if (styleFocus && !styleFocus.hidden) return false;
+  if (isAlbumOpen()) return false;
+  if (filmDock?.classList.contains("is-collapsed")) return false;
+  filmPointerStartX = clientX;
+  filmPointerLastX = clientX;
+  filmPointerStartFrames = filmPulledFrames;
+  filmPointerMoved = false;
+  filmDock?.classList.add("is-dragging");
+  window.addEventListener("pointermove", handleFilmPointerMove);
+  window.addEventListener("pointerup", handleFilmPointerEnd);
+  window.addEventListener("pointercancel", resetFilmDrag);
+  return true;
 }
 
 function handleFilmPointerMove(event) {
   if (filmPointerStartX === null || !filmStrip) return;
-  const now = performance.now();
-  if (filmPointerLastX !== null && filmPointerLastTime) {
-    const dt = Math.max(8, now - filmPointerLastTime);
-    filmPointerVelocity = (event.clientX - filmPointerLastX) / dt;
-  }
   const delta = event.clientX - filmPointerStartX;
   filmPointerLastX = event.clientX;
-  filmPointerLastTime = now;
   if (Math.abs(delta) > 4) filmPointerMoved = true;
-  const offset = Math.max(-122, Math.min(78, delta));
-  filmStrip.style.setProperty("--film-drag-x", `${offset}px`);
-  if (filmDock?.classList.contains("is-peek") && delta < -26) {
-    filmDock.classList.remove("is-peek");
-    filmPeekRevealedDuringDrag = true;
-  }
+  const frameWidth = getFilmFrameWidth();
+  const pulledFrames = filmPointerStartFrames + (-delta / frameWidth);
+  setFilmPulledFrames(pulledFrames);
 }
 
-function handleFilmPointerEnd(event) {
+function handleFilmPointerEnd() {
   if (filmPointerStartX === null || !filmStrip) return;
-  const delta = (filmPointerLastX ?? event.clientX) - filmPointerStartX;
   if (filmPointerMoved) {
     filmClickSuppressed = true;
     window.setTimeout(() => {
@@ -699,38 +915,47 @@ function handleFilmPointerEnd(event) {
     }, 180);
   }
   filmDock?.classList.remove("is-dragging");
-  filmStrip.style.removeProperty("--film-drag-x");
   filmPointerStartX = null;
   filmPointerLastX = null;
-  const revealedOnly = filmPeekRevealedDuringDrag;
-  const movedGroup = filmMovedGroupDuringDrag;
-  const velocity = filmPointerVelocity;
   filmPointerMoved = false;
-  filmPeekRevealedDuringDrag = false;
-  filmMovedGroupDuringDrag = false;
-  filmPointerVelocity = 0;
-  filmPointerLastTime = 0;
+  filmPointerStartFrames = filmPulledFrames;
   window.removeEventListener("pointermove", handleFilmPointerMove);
   window.removeEventListener("pointerup", handleFilmPointerEnd);
   window.removeEventListener("pointercancel", resetFilmDrag);
-  if (Math.abs(delta) < 28) return;
-  if (movedGroup) return;
-  const fast = Math.abs(velocity) > 0.58;
-  const stepCount = fast ? (velocity < 0 ? 2 : -2) : (delta < 0 ? 1 : -1);
-  if (revealedOnly && !fast && Math.abs(delta) < 118) return;
-  glideFilmToGroup(stepCount);
 }
 
-function openSharePreview(imageSrc, label = "照片") {
+async function openSharePreview(imageSrc, label = "照片", originElement = null) {
   if (!sharePreview || !shareImage || !shareCopy) return;
+  sharePreviewOriginElement = originElement;
   shareImage.src = imageSrc;
   shareImage.alt = `${label}发布预览`;
   shareCopy.textContent = `${label}像从旧相册里翻出来的一小段日常。光线落得刚刚好，画面安静，却有一种很适合发小红书的温度。`;
   sharePreview.hidden = false;
+  if (originElement && visibleRect(originElement)) {
+    const target = shareCard || shareImage;
+    target?.classList.add("is-flight-hidden");
+    await nextFrame();
+    await flyElementBetween(originElement, target, {
+      duration: 430,
+      hideSource: true,
+      revealTarget: true
+    });
+  }
 }
 
-function closeSharePreview() {
-  if (sharePreview) sharePreview.hidden = true;
+async function closeSharePreview() {
+  if (!sharePreview || sharePreview.hidden || sharePreviewClosing) return;
+  sharePreviewClosing = true;
+  const origin = sharePreviewOriginElement;
+  const source = shareCard || shareImage;
+  if (origin && document.body.contains(origin) && visibleRect(origin)) {
+    await flyElementBetween(source, origin, { duration: 360, fadeOut: true, hideSource: true });
+  }
+  origin?.classList.remove("is-flight-hidden");
+  sharePreview.hidden = true;
+  source?.classList.remove("is-flight-hidden");
+  sharePreviewOriginElement = null;
+  sharePreviewClosing = false;
 }
 
 async function handleShareAction(action) {
@@ -770,11 +995,14 @@ styleWallInner?.addEventListener("click", (event) => {
 selectedStyleDock?.addEventListener("click", (event) => {
   const card = event.target.closest("[data-style-preview]");
   if (!card) return;
-  showStyleFocus(card.dataset.stylePreview);
+  showStyleFocus(card.dataset.stylePreview, card);
 });
 
 styleFocus?.addEventListener("click", closeStyleFocus);
-styleFocusCard?.addEventListener("click", closeStyleFocus);
+styleFocusCard?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  closeStyleFocus();
+});
 
 document.addEventListener(
   "click",
@@ -794,18 +1022,21 @@ startGenerationButton?.addEventListener("click", startGenerationDemo);
 
 filmToggle?.addEventListener("click", () => {
   if (styleFocus && !styleFocus.hidden) return;
+  if (isAlbumOpen()) return;
   setFilmDockExpanded(filmDock.classList.contains("is-collapsed"));
 });
 
 filmStrip?.addEventListener("click", (event) => {
   if (styleFocus && !styleFocus.hidden) return;
+  if (isAlbumOpen()) return;
   if (filmClickSuppressed) {
     filmClickSuppressed = false;
     return;
   }
   const frame = event.target.closest("[data-group-index]");
-  if (!frame) return;
-  selectGroup(Number(frame.dataset.groupIndex));
+  const index = frame ? Number(frame.dataset.groupIndex) : getFilmFrameIndexFromPoint(event.clientX);
+  if (index === null || Number.isNaN(index)) return;
+  selectGroup(index);
 });
 
 filmStrip?.addEventListener("dragstart", (event) => {
@@ -813,25 +1044,22 @@ filmStrip?.addEventListener("dragstart", (event) => {
 });
 
 filmStrip?.addEventListener("pointerdown", (event) => {
-  if (styleFocus && !styleFocus.hidden) return;
-  if (filmDock?.classList.contains("is-collapsed")) return;
-  filmPointerStartX = event.clientX;
-  filmPointerLastX = event.clientX;
-  filmPointerLastTime = performance.now();
-  filmPointerVelocity = 0;
-  filmPointerMoved = false;
-  filmPeekRevealedDuringDrag = false;
-  filmMovedGroupDuringDrag = false;
-  filmDock?.classList.add("is-dragging");
-  window.addEventListener("pointermove", handleFilmPointerMove);
-  window.addEventListener("pointerup", handleFilmPointerEnd);
-  window.addEventListener("pointercancel", resetFilmDrag);
+  if (event.button !== 0) return;
+  event.preventDefault();
+  beginFilmDrag(event.clientX);
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+});
+
+filmStrip?.addEventListener("pointermove", (event) => {
+  if (filmPointerStartX !== null || event.buttons !== 1) return;
+  if (!beginFilmDrag(event.clientX)) return;
+  handleFilmPointerMove(event);
 });
 
 
 sourcePhoto?.addEventListener("click", () => {
   if (!generationStage.classList.contains("has-source")) return;
-  openSharePreview(sourceImage.src, "原图");
+  openSharePreview(sourceImage.src, "原图", sourcePhoto);
 });
 
 generationCards.forEach((card) => {
@@ -842,7 +1070,7 @@ generationCards.forEach((card) => {
     }
     const finalImage = card.querySelector(".final-img");
     const label = card.querySelector(".result-label")?.textContent || "生成图";
-    openSharePreview(finalImage.src, label);
+    openSharePreview(finalImage.src, label, card);
   });
 });
 
