@@ -220,22 +220,29 @@
         <svg><use href="#icon-plus"></use></svg>
       </button>
 
-      <nav class="bottom-nav" aria-label="主导航">
-        <button class="nav-item is-active" type="button" data-target="home">
-          <svg><use href="#icon-home"></use></svg>
-          <span>首页</span>
-        </button>
-        <button class="nav-item" type="button" data-target="works">
-          <svg><use href="#icon-grid"></use></svg>
-          <span>作品</span>
-        </button>
-        <button class="nav-item" type="button" data-target="drafts">
-          <svg><use href="#icon-edit"></use></svg>
-          <span>草稿</span>
-        </button>
-        <button class="nav-item" type="button" data-target="settings">
-          <svg><use href="#icon-settings"></use></svg>
-          <span>设置</span>
+      <nav class="film-dock is-collapsed" id="filmDock" aria-label="主导航">
+        <span class="film-leader" aria-hidden="true"></span>
+        <div class="film-strip" id="filmStrip">
+          <img class="film-strip-image" src="./assets/胶卷5.jpg" alt="" aria-hidden="true" />
+          <button class="nav-item is-active" type="button" data-target="home">
+            <svg><use href="#icon-home"></use></svg>
+            <span>首页</span>
+          </button>
+          <button class="nav-item" type="button" data-target="works">
+            <svg><use href="#icon-grid"></use></svg>
+            <span>作品</span>
+          </button>
+          <button class="nav-item" type="button" data-target="drafts">
+            <svg><use href="#icon-edit"></use></svg>
+            <span>草稿</span>
+          </button>
+          <button class="nav-item" type="button" data-target="settings">
+            <svg><use href="#icon-settings"></use></svg>
+            <span>设置</span>
+          </button>
+        </div>
+        <button class="film-roll" id="filmToggle" type="button" aria-label="展开导航胶卷" aria-expanded="false" aria-controls="filmStrip">
+          <img class="film-roll-image" src="./assets/胶卷4-透明.png" alt="" aria-hidden="true" />
         </button>
       </nav>
     </main>

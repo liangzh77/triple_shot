@@ -82,6 +82,8 @@ const workList = document.querySelector("#workList");
 const searchInput = document.querySelector("#searchInput");
 const saveStatus = document.querySelector("#saveStatus");
 const phoneShell = document.querySelector(".phone-shell");
+const filmDock = document.querySelector("#filmDock");
+const filmToggle = document.querySelector("#filmToggle");
 const generationStage = document.querySelector(".generation-stage");
 const generationStatus = document.querySelector("#generationStatus");
 const sourcePhoto = document.querySelector("#sourcePhoto");
@@ -213,6 +215,13 @@ function setPanel(name) {
     item.classList.toggle("is-active", item.dataset.target === name);
   });
   document.querySelector("#newShotButton").hidden = name === "home" || name === "settings";
+}
+
+function setFilmDockExpanded(expanded) {
+  if (!filmDock || !filmToggle) return;
+  filmDock.classList.toggle("is-collapsed", !expanded);
+  filmToggle.setAttribute("aria-expanded", String(expanded));
+  filmToggle.setAttribute("aria-label", expanded ? "收起导航胶卷" : "展开导航胶卷");
 }
 
 function showToast(message) {
@@ -371,8 +380,17 @@ if (styleRail) {
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => {
-  button.addEventListener("click", () => setPanel(button.dataset.target));
+  button.addEventListener("click", () => {
+    setPanel(button.dataset.target);
+    setFilmDockExpanded(false);
+  });
 });
+
+if (filmDock && filmToggle) {
+  filmToggle.addEventListener("click", () => {
+    setFilmDockExpanded(filmDock.classList.contains("is-collapsed"));
+  });
+}
 
 document.querySelectorAll(".filter-chip").forEach((button) => {
   button.addEventListener("click", () => {
