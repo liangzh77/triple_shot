@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Triple Shot 手机竖版 UI 原型</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2333261b'/%3E%3Cpath d='M4 5h8v6H4z' fill='%23f1c15b'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./手机竖版UI原型.css?v=film-sequence-20260612b" />
+    <link rel="stylesheet" href="./手机竖版UI原型.css?v=film-sequence-20260613-card-image-blur" />
   </head>
   <body>
     <svg aria-hidden="true" class="svg-sprite">
@@ -95,7 +95,7 @@
 
           <div class="style-focus" id="styleFocus" hidden>
             <button class="style-focus-card" id="styleFocusCard" type="button" aria-label="收起风格预览">
-              <img id="styleFocusImage" src="../backup/专业摄影.jpg" alt="风格大图预览" />
+              <img id="styleFocusImage" src="./assets/专业摄影.jpg" alt="风格大图预览" />
               <span id="styleFocusLabel">专业摄影</span>
             </button>
           </div>
@@ -112,42 +112,39 @@
           </div>
 
           <button class="start-generate-button" id="startGenerationButton" type="button" hidden>开始吧</button>
+          <button class="delete-source-button" id="deleteSourceButton" type="button" aria-label="删除原图" hidden>
+            <svg><use href="#icon-close"></use></svg>
+          </button>
 
           <div class="burst-ring" aria-hidden="true"></div>
 
           <figure class="source-photo paper-photo" id="sourcePhoto">
-            <img src="../backup/原图.jpg" alt="用户上传的原始照片" />
+            <img src="./assets/原图.jpg" alt="用户上传的原始照片" />
             <figcaption>原图</figcaption>
           </figure>
 
           <button class="result-photo paper-photo result-one" type="button" data-generation-card="work-pro" aria-label="查看专业摄影版">
-            <span class="result-loader">
-              <span></span>
-            </span>
-            <img class="placeholder-img" src="../backup/原图.jpg" alt="" aria-hidden="true" />
-            <img class="final-img" src="../backup/专业摄影.jpg" alt="专业摄影生成结果" />
+            <span class="result-loader"></span>
+            <img class="placeholder-img" src="./assets/原图.jpg" alt="" aria-hidden="true" />
+            <img class="final-img" src="./assets/专业摄影.jpg" alt="专业摄影生成结果" />
             <span class="result-label">专业摄影</span>
-            <span class="result-time">12s</span>
+            <span class="result-time"></span>
           </button>
 
           <button class="result-photo paper-photo result-two" type="button" data-generation-card="work-anime" aria-label="查看动画暖光版">
-            <span class="result-loader">
-              <span></span>
-            </span>
-            <img class="placeholder-img" src="../backup/原图.jpg" alt="" aria-hidden="true" />
-            <img class="final-img" src="../backup/吉卜力.jpg" alt="动画暖光生成结果" />
+            <span class="result-loader"></span>
+            <img class="placeholder-img" src="./assets/原图.jpg" alt="" aria-hidden="true" />
+            <img class="final-img" src="./assets/吉卜力.jpg" alt="动画暖光生成结果" />
             <span class="result-label">动画暖光</span>
-            <span class="result-time">14s</span>
+            <span class="result-time"></span>
           </button>
 
           <button class="result-photo paper-photo result-three" type="button" data-generation-card="work-watercolor" aria-label="查看水彩纸感版">
-            <span class="result-loader">
-              <span></span>
-            </span>
-            <img class="placeholder-img" src="../backup/原图.jpg" alt="" aria-hidden="true" />
-            <img class="final-img" src="../backup/水彩.jpg" alt="水彩纸感生成结果" />
+            <span class="result-loader"></span>
+            <img class="placeholder-img" src="./assets/原图.jpg" alt="" aria-hidden="true" />
+            <img class="final-img" src="./assets/水彩.jpg" alt="水彩纸感生成结果" />
             <span class="result-label">水彩纸感</span>
-            <span class="result-time">16s</span>
+            <span class="result-time"></span>
           </button>
         </div>
       </section>
@@ -220,7 +217,7 @@
           <article class="setting-row">
             <div>
               <strong>图片目录</strong>
-              <small>当前读取 backup 文件夹中的样张。</small>
+              <small>当前读取 assets 文件夹中的样张。</small>
             </div>
             <span class="status draft">待整理</span>
           </article>
@@ -246,16 +243,16 @@
         <div class="film-strip" id="filmStrip">
           <div class="film-track" id="filmTrack">
             <button class="nav-item film-frame is-active" type="button" data-group-index="0" aria-label="查看第 1 组">
-              <img src="../backup/原图.jpg" alt="" />
+              <img src="./assets/原图.jpg" alt="" />
             </button>
             <button class="nav-item film-frame" type="button" data-group-index="1" aria-label="查看第 2 组">
-              <img src="../backup/专业摄影.jpg" alt="" />
+              <img src="./assets/专业摄影.jpg" alt="" />
             </button>
             <button class="nav-item film-frame" type="button" data-group-index="2" aria-label="查看第 3 组">
-              <img src="../backup/吉卜力.jpg" alt="" />
+              <img src="./assets/吉卜力.jpg" alt="" />
             </button>
             <button class="nav-item film-frame" type="button" data-group-index="3" aria-label="查看第 4 组">
-              <img src="../backup/水彩.jpg" alt="" />
+              <img src="./assets/水彩.jpg" alt="" />
             </button>
           </div>
         </div>
@@ -268,8 +265,14 @@
         <button class="share-preview-scrim" id="sharePreviewScrim" type="button" aria-label="收起发布预览"></button>
         <article class="share-card" aria-label="发布卡片预览">
           <p id="shareCopy">这组照片像从旧相册里翻出来的一小段夏天。光落在脸上，房间安静下来，连日常也有了值得保存的温度。</p>
-          <img id="shareImage" src="../backup/专业摄影.jpg" alt="发布图片预览" />
+          <img id="shareImage" src="./assets/专业摄影.jpg" alt="发布图片预览" />
+          <strong class="share-caption" id="shareCaption"></strong>
         </article>
+        <div class="share-swipe-hints" aria-hidden="true">
+          <span class="share-swipe-mark">&lt;&lt;&lt;</span>
+          <span class="share-swipe-label">左右滑动</span>
+          <span class="share-swipe-mark">&gt;&gt;&gt;</span>
+        </div>
         <div class="share-actions">
           <button type="button" data-share-action="copy-text">复制文案</button>
           <button type="button" data-share-action="copy-image">复制图片</button>
@@ -290,7 +293,7 @@
             <svg><use href="#icon-close"></use></svg>
           </button>
         </header>
-        <img class="detail-image" id="detailImage" src="../backup/专业摄影.jpg" alt="详情预览图" />
+        <img class="detail-image" id="detailImage" src="./assets/专业摄影.jpg" alt="详情预览图" />
         <div class="detail-thumbs" id="detailThumbs" aria-label="切换详情图片"></div>
         <div class="detail-grid">
           <div>
@@ -344,7 +347,7 @@
             <small>保存后会出现在作品列表。</small>
           </label>
           <div class="form-preview">
-            <img id="formPreview" src="../backup/专业摄影.jpg" alt="表单风格预览" />
+            <img id="formPreview" src="./assets/专业摄影.jpg" alt="表单风格预览" />
             <span>预览</span>
           </div>
           <button class="primary-button full-width" type="submit" id="submitCreate">
@@ -368,6 +371,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="./手机竖版UI原型.js?v=film-sequence-20260612b"></script>
+    <script src="./手机竖版UI原型.js?v=film-sequence-20260613-card-image-blur"></script>
   </body>
 </html>

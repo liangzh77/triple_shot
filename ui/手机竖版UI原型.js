@@ -2,49 +2,49 @@ const styleOptions = [
   {
     key: "original",
     label: "原图",
-    image: "../backup/原图.jpg",
+    image: "./assets/原图.jpg",
     note: "真实室内光线，适合做来源对照。",
     hero: "保留原始现场感，方便比较每次转换的变化。"
   },
   {
     key: "pro",
     label: "专业摄影",
-    image: "../backup/专业摄影.jpg",
+    image: "./assets/专业摄影.jpg",
     note: "柔和景深，人物主体更清楚。",
     hero: "自然肤色、柔和景深和清楚主体。"
   },
   {
     key: "anime",
     label: "动画暖光",
-    image: "../backup/吉卜力.jpg",
+    image: "./assets/吉卜力.jpg",
     note: "温暖叙事感，适合故事化展示。",
     hero: "暖色线稿和室内细节更有叙事感。"
   },
   {
     key: "watercolor",
     label: "水彩纸感",
-    image: "../backup/水彩.jpg",
+    image: "./assets/水彩.jpg",
     note: "纸张肌理明显，适合轻量插画方向。",
     hero: "明亮纸感与留白更轻。"
   },
   {
     key: "film",
     label: "复古胶片",
-    image: "../backup/专业摄影.jpg",
+    image: "./assets/专业摄影.jpg",
     note: "偏暖颗粒感，像旧相册翻拍。",
     hero: "让日常照片更像老胶片。"
   },
   {
     key: "clear",
     label: "清透写真",
-    image: "../backup/原图.jpg",
+    image: "./assets/原图.jpg",
     note: "保留真实光线，增加干净通透感。",
     hero: "适合生活方式和头像照片。"
   },
   {
     key: "paper",
     label: "手账拼贴",
-    image: "../backup/水彩.jpg",
+    image: "./assets/水彩.jpg",
     note: "轻微纸边和手工感，适合发帖封面。",
     hero: "像贴进手账里的照片。"
   }
@@ -108,14 +108,30 @@ let filmPointerStartFrames = 2.5;
 let filmPointerMoved = false;
 let filmClickSuppressed = false;
 let filmPulledFrames = 2.5;
+let filmVisibleFrames = 2.5;
 let styleFocusOriginElement = null;
 let styleFocusClosing = false;
 let sharePreviewOriginElement = null;
 let sharePreviewClosing = false;
+let sharePreviewItems = [];
+let sharePreviewIndex = 0;
+let shareSwipeStartX = null;
+let shareSwipeStartY = null;
+let shareSwipeStartedInActions = false;
+let shareSwipeSuppressClick = false;
 let deskFlightRunning = false;
 let filmDockAnimating = false;
+let styleFeedRestoreTimer;
+const styleCardSnapshotCache = new Map();
 
 const FILM_MIN_VISIBLE_FRAMES = 2.5;
+const FILM_END_REVEAL_FRAMES = 0.22;
+const STYLE_CARD_SNAPSHOT_WIDTH = 310;
+const STYLE_CARD_SNAPSHOT_HEIGHT = 430;
+const SHARE_PREVIEW_OPEN_DURATION = 430;
+const SHARE_PREVIEW_CLOSE_DURATION = 360;
+const STYLE_FEED_DURATION = 744;
+const STYLE_REFERENCE_REAPPEAR_DELAY = 760;
 
 const workList = document.querySelector("#workList");
 const searchInput = document.querySelector("#searchInput");
@@ -139,6 +155,7 @@ const styleFocusCard = document.querySelector("#styleFocusCard");
 const styleFocusImage = document.querySelector("#styleFocusImage");
 const styleFocusLabel = document.querySelector("#styleFocusLabel");
 const startGenerationButton = document.querySelector("#startGenerationButton");
+const deleteSourceButton = document.querySelector("#deleteSourceButton");
 const takePhotoButton = document.querySelector("#takePhotoButton");
 const fakeUploadButton = document.querySelector("#fakeUpload");
 const detailSheet = document.querySelector("#detailSheet");
@@ -162,6 +179,7 @@ const sharePreviewScrim = document.querySelector("#sharePreviewScrim");
 const shareCard = document.querySelector(".share-card");
 const shareCopy = document.querySelector("#shareCopy");
 const shareImage = document.querySelector("#shareImage");
+const shareCaption = document.querySelector("#shareCaption");
 
 const generationTiming = [
   { seconds: 12 },
@@ -170,11 +188,11 @@ const generationTiming = [
 ];
 
 let generationGroups = [
-  createGroup("group-1", "原图和三张生成图", "../backup/原图.jpg", ["pro", "anime", "watercolor"]),
-  createGroup("group-2", "专业摄影起稿", "../backup/专业摄影.jpg", ["anime", "watercolor", "film"]),
-  createGroup("group-3", "动画暖光起稿", "../backup/吉卜力.jpg", ["watercolor", "pro", "paper"]),
-  createGroup("group-4", "水彩纸感起稿", "../backup/水彩.jpg", ["pro", "anime", "clear"]),
-  createGroup("group-5", "自然光起稿", "../backup/原图.jpg", ["film", "paper", "pro"])
+  createGroup("group-1", "原图和三张生成图", "./assets/原图.jpg", ["pro", "anime", "watercolor"]),
+  createGroup("group-2", "专业摄影起稿", "./assets/专业摄影.jpg", ["anime", "watercolor", "film"]),
+  createGroup("group-3", "动画暖光起稿", "./assets/吉卜力.jpg", ["watercolor", "pro", "paper"]),
+  createGroup("group-4", "水彩纸感起稿", "./assets/水彩.jpg", ["pro", "anime", "clear"]),
+  createGroup("group-5", "自然光起稿", "./assets/原图.jpg", ["film", "paper", "pro"])
 ];
 
 function createGroup(id, title, source, styleKeys) {
@@ -212,6 +230,85 @@ function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function drawImageCover(ctx, image, x, y, width, height) {
+  const imageRatio = image.naturalWidth / image.naturalHeight;
+  const boxRatio = width / height;
+  let sourceWidth = image.naturalWidth;
+  let sourceHeight = image.naturalHeight;
+  let sourceX = 0;
+  let sourceY = 0;
+  if (imageRatio > boxRatio) {
+    sourceWidth = image.naturalHeight * boxRatio;
+    sourceX = (image.naturalWidth - sourceWidth) / 2;
+  } else {
+    sourceHeight = image.naturalWidth / boxRatio;
+    sourceY = (image.naturalHeight - sourceHeight) * 0.34;
+  }
+  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+}
+
+function loadCardImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = new URL(src, document.baseURI).href;
+  });
+}
+
+function updateStyleSnapshotElements(styleKey, snapshotSrc) {
+  document.querySelectorAll(`[data-style-card-snapshot="${styleKey}"]`).forEach((image) => {
+    image.src = snapshotSrc;
+  });
+  if (styleFocus?.dataset.styleKey === styleKey && styleFocusImage) {
+    styleFocusImage.src = snapshotSrc;
+  }
+}
+
+function ensureStyleCardSnapshot(style) {
+  const cached = styleCardSnapshotCache.get(style.key);
+  if (typeof cached === "string") return Promise.resolve(cached);
+  if (cached) return cached;
+  const promise = loadCardImage(style.image)
+    .then((image) => {
+      const scale = 2;
+      const width = STYLE_CARD_SNAPSHOT_WIDTH;
+      const height = STYLE_CARD_SNAPSHOT_HEIGHT;
+      const canvas = document.createElement("canvas");
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.fillStyle = "#fbf5e8";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "rgba(70, 49, 31, 0.16)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+      drawImageCover(ctx, image, 8, 8, width - 16, height - 36);
+      ctx.fillStyle = "rgba(42, 35, 29, 0.86)";
+      ctx.font = '950 12px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif';
+      ctx.textBaseline = "alphabetic";
+      ctx.fillText(style.label, 12, height - 8);
+      const snapshot = canvas.toDataURL("image/png");
+      styleCardSnapshotCache.set(style.key, snapshot);
+      updateStyleSnapshotElements(style.key, snapshot);
+      return snapshot;
+    })
+    .catch(() => {
+      styleCardSnapshotCache.delete(style.key);
+      return style.image;
+    });
+  styleCardSnapshotCache.set(style.key, promise);
+  return promise;
+}
+
+function getStyleCardSnapshot(style) {
+  const cached = styleCardSnapshotCache.get(style.key);
+  if (typeof cached === "string") return cached;
+  ensureStyleCardSnapshot(style);
+  return style.image;
+}
+
 function cleanCloneIds(element) {
   element.removeAttribute("id");
   element.classList.remove("is-flight-hidden");
@@ -238,71 +335,163 @@ function getElementRotation(element) {
   return Math.atan2(values[1], values[0]) * (180 / Math.PI);
 }
 
-function createFlightGhost(sourceElement, templateElement = sourceElement) {
-  const rect = visibleRect(sourceElement);
+function getFlightPose(element, useElementTransform = false) {
+  const rect = visibleRect(element);
   if (!rect) return null;
+  if (!useElementTransform) {
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      transform: null
+    };
+  }
+  const parentRect = element.offsetParent?.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  return {
+    left: parentRect ? parentRect.left + element.offsetLeft : rect.left,
+    top: parentRect ? parentRect.top + element.offsetTop : rect.top,
+    width: element.offsetWidth || rect.width,
+    height: element.offsetHeight || rect.height,
+    transform: style.transform && style.transform !== "none" ? style.transform : "none"
+  };
+}
+
+function createFlightGhost(sourceElement, templateElement = sourceElement, options = {}) {
+  const matchStartTransform = options.matchStartElementTransform ?? options.matchElementTransform;
+  const pose = getFlightPose(sourceElement, matchStartTransform);
+  if (!pose) return null;
+  const sourceStyle = getComputedStyle(sourceElement);
   const ghost = templateElement.cloneNode(true);
   cleanCloneIds(ghost);
   ghost.classList.add("fly-ghost");
   ghost.setAttribute("aria-hidden", "true");
   const rotation = getElementRotation(templateElement);
+  const transform = matchStartTransform ? pose.transform : `rotate(${rotation}deg)`;
   Object.assign(ghost.style, {
     position: "fixed",
-    left: `${rect.left}px`,
-    top: `${rect.top}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
+    left: `${pose.left}px`,
+    top: `${pose.top}px`,
+    width: `${pose.width}px`,
+    height: `${pose.height}px`,
     margin: "0",
-    transform: `rotate(${rotation}deg)`,
-    transformOrigin: "center center",
-    zIndex: "80",
+    transform,
+    transformOrigin: sourceStyle.transformOrigin || "center center",
+    borderRadius: sourceStyle.borderRadius,
+    zIndex: options.zIndex ?? "80",
     pointerEvents: "none"
   });
   document.body.appendChild(ghost);
-  return { ghost, rect, rotation };
+  return { ghost, pose, rotation };
+}
+
+function createStageFlightGhost(sourceElement, templateElement = sourceElement, options = {}) {
+  if (!generationStage) return null;
+  const matchStartTransform = options.matchStartElementTransform ?? options.matchElementTransform;
+  const viewportPose = getFlightPose(sourceElement, matchStartTransform);
+  const stageRect = generationStage.getBoundingClientRect();
+  if (!viewportPose || !stageRect.width || !stageRect.height) return null;
+  const sourceStyle = getComputedStyle(sourceElement);
+  const ghost = templateElement.cloneNode(true);
+  cleanCloneIds(ghost);
+  ghost.classList.add("fly-ghost", "stage-fly-ghost");
+  ghost.setAttribute("aria-hidden", "true");
+  const rotation = getElementRotation(templateElement);
+  const transform = matchStartTransform ? viewportPose.transform : `rotate(${rotation}deg)`;
+  const pose = {
+    ...viewportPose,
+    left: viewportPose.left - stageRect.left,
+    top: viewportPose.top - stageRect.top
+  };
+  Object.assign(ghost.style, {
+    position: "absolute",
+    left: `${pose.left}px`,
+    top: `${pose.top}px`,
+    width: `${pose.width}px`,
+    height: `${pose.height}px`,
+    margin: "0",
+    transform,
+    transformOrigin: sourceStyle.transformOrigin || "center center",
+    borderRadius: sourceStyle.borderRadius,
+    zIndex: options.zIndex ?? "6",
+    pointerEvents: "none"
+  });
+  generationStage.appendChild(ghost);
+  return { ghost, pose, rotation, stageRect };
+}
+
+function getStageFlightPose(element, useElementTransform = false) {
+  if (!generationStage) return null;
+  const viewportPose = getFlightPose(element, useElementTransform);
+  if (!viewportPose) return null;
+  const stageRect = generationStage.getBoundingClientRect();
+  return {
+    ...viewportPose,
+    left: viewportPose.left - stageRect.left,
+    top: viewportPose.top - stageRect.top
+  };
 }
 
 async function flyElementBetween(sourceElement, targetElement, options = {}) {
-  const start = createFlightGhost(sourceElement, options.templateElement || targetElement);
-  const endRect = visibleRect(targetElement);
-  if (!start || !endRect) return;
+  const start = createFlightGhost(sourceElement, options.templateElement || targetElement, options);
+  const matchStartTransform = options.matchStartElementTransform ?? options.matchElementTransform;
+  const matchEndTransform = options.matchEndElementTransform ?? options.matchElementTransform;
+  const endPose = getFlightPose(targetElement, matchEndTransform);
+  if (!start || !endPose) return;
   if (options.hideSource) sourceElement.classList.add("is-flight-hidden");
-  const { ghost, rect: startRect, rotation } = start;
+  const { ghost, pose: startPose, rotation } = start;
   const duration = options.duration ?? 460;
-  const delay = options.delay ?? 0;
+  const startDelay = options.delay ?? 0;
   const easing = options.easing ?? "cubic-bezier(0.16, 1, 0.3, 1)";
+  const startTransform = matchStartTransform ? startPose.transform : `rotate(${rotation}deg)`;
+  const endTransform = matchEndTransform ? endPose.transform : `rotate(${rotation}deg)`;
+  const startStyle = getComputedStyle(sourceElement);
+  const endStyle = getComputedStyle(targetElement);
+  const startBorderRadius = startStyle.borderRadius;
+  const endBorderRadius = endStyle.borderRadius;
+  const startTransformOrigin = startStyle.transformOrigin || "center center";
+  const endTransformOrigin = endStyle.transformOrigin || startTransformOrigin;
+  let animation;
   try {
-    await ghost
-      .animate(
-        [
-          {
-            left: `${startRect.left}px`,
-            top: `${startRect.top}px`,
-            width: `${startRect.width}px`,
-            height: `${startRect.height}px`,
-            opacity: 1,
-            filter: "saturate(1)",
-            transform: `rotate(${rotation}deg)`
-          },
-          {
-            left: `${endRect.left}px`,
-            top: `${endRect.top}px`,
-            width: `${endRect.width}px`,
-            height: `${endRect.height}px`,
-            opacity: options.fadeOut ? 0 : 1,
-            filter: "saturate(1.06)",
-            transform: `rotate(${rotation}deg)`
-          }
-        ],
-        { duration, delay, easing, fill: "forwards" }
-      ).finished;
+    animation = ghost.animate(
+      [
+        {
+          left: `${startPose.left}px`,
+          top: `${startPose.top}px`,
+          width: `${startPose.width}px`,
+          height: `${startPose.height}px`,
+          opacity: 1,
+          filter: "saturate(1)",
+          transform: startTransform,
+          transformOrigin: startTransformOrigin,
+          borderRadius: startBorderRadius
+        },
+        {
+          left: `${endPose.left}px`,
+          top: `${endPose.top}px`,
+          width: `${endPose.width}px`,
+          height: `${endPose.height}px`,
+          opacity: options.fadeOut ? 0 : 1,
+          filter: "saturate(1.06)",
+          transform: endTransform,
+          transformOrigin: endTransformOrigin,
+          borderRadius: endBorderRadius
+        }
+      ],
+      { duration, delay: startDelay, easing, fill: "forwards" }
+    );
+    await Promise.race([
+      animation.finished.catch(() => {}),
+      new Promise((resolve) => window.setTimeout(resolve, duration + startDelay + 80))
+    ]);
   } catch {
     // Animations can be canceled during fast repeated taps; the UI state below still resolves.
   } finally {
     if (options.revealTarget) {
       targetElement.classList.remove("is-flight-hidden");
-      await new Promise((resolve) => requestAnimationFrame(resolve));
     }
+    animation?.cancel();
     ghost.remove();
   }
 }
@@ -311,8 +500,22 @@ function getDeskPhotoElements() {
   return [sourcePhoto, ...generationCards].filter(Boolean);
 }
 
+function isFilmElement(element) {
+  return Boolean(element?.closest?.("#filmDock"));
+}
+
 function isDeskPhotoVisible() {
   return generationStage?.classList.contains("has-source");
+}
+
+function updateDeleteSourceButton() {
+  if (!deleteSourceButton || !generationStage) return;
+  const canDelete =
+    sourceReady &&
+    generationStage.classList.contains("has-source") &&
+    !generationStage.classList.contains("is-running") &&
+    !generationStage.classList.contains("is-group-view");
+  deleteSourceButton.hidden = !canDelete;
 }
 
 function clearDeskPhotos() {
@@ -321,20 +524,26 @@ function clearDeskPhotos() {
   generationStage?.classList.remove("has-source", "is-running", "is-complete", "is-group-view");
   resetGenerationCards();
   if (startGenerationButton) startGenerationButton.hidden = true;
+  updateDeleteSourceButton();
 }
 
 async function flyDeskPhotosTo(targetElement, { clearAfter = true, collapseFilmAfter = false } = {}) {
   if (!targetElement || !isDeskPhotoVisible() || deskFlightRunning) return;
   deskFlightRunning = true;
   const elements = getDeskPhotoElements().filter((element) => visibleRect(element));
+  const fliesIntoFilm = isFilmElement(targetElement);
+  const flightZIndex = fliesIntoFilm ? "8" : undefined;
   await Promise.all(
     elements.map((element, index) =>
       flyElementBetween(element, targetElement, {
         hideSource: true,
-        fadeOut: true,
+        fadeOut: !fliesIntoFilm,
         templateElement: element,
-        duration: 360,
-        delay: index * 34
+        matchElementTransform: fliesIntoFilm,
+        zIndex: flightZIndex,
+        duration: fliesIntoFilm ? 420 : 360,
+        delay: fliesIntoFilm ? index * 24 : index * 34,
+        easing: fliesIntoFilm ? "cubic-bezier(0.2, 0.82, 0.24, 1)" : undefined
       })
     )
   );
@@ -348,14 +557,19 @@ async function flyDeskPhotosTo(targetElement, { clearAfter = true, collapseFilmA
 async function flyDeskPhotosFrom(sourceElement) {
   if (!sourceElement) return;
   const candidates = getDeskPhotoElements();
+  const fliesFromFilm = isFilmElement(sourceElement);
+  const flightZIndex = fliesFromFilm ? "8" : undefined;
   candidates.forEach((element) => element.classList.add("is-flight-hidden"));
-  await nextFrame();
+  if (generationStage) void generationStage.offsetHeight;
   const elements = candidates.filter((element) => visibleRect(element));
   await Promise.all(
     elements.map((element, index) =>
       flyElementBetween(sourceElement, element, {
-        duration: 430,
-        delay: index * 46,
+        duration: fliesFromFilm ? 440 : 430,
+        delay: fliesFromFilm ? index * 24 : index * 46,
+        matchElementTransform: fliesFromFilm,
+        easing: fliesFromFilm ? "cubic-bezier(0.2, 0.82, 0.24, 1)" : undefined,
+        zIndex: flightZIndex,
         revealTarget: true
       })
     )
@@ -458,6 +672,7 @@ function updateStyleWallSelection() {
 
 function renderSelectedStyles() {
   if (!selectedStyleDock) return;
+  selectedStyleDock.style.setProperty("--selected-style-count", String(Math.max(1, selectedStyles.length)));
   const tossed = [
     { x: "-2px", y: "3px", rot: "-5deg" },
     { x: "3px", y: "-2px", rot: "4deg" },
@@ -467,10 +682,11 @@ function renderSelectedStyles() {
     .map((key, index) => {
       const style = getStyle(key);
       const pose = tossed[index % tossed.length];
+      const snapshot = getStyleCardSnapshot(style);
       return `
         <button class="selected-style-card" type="button" data-style-preview="${style.key}" aria-label="预览${style.label}" style="--dock-x: ${pose.x}; --dock-y: ${pose.y}; --dock-rot: ${pose.rot}">
-          <img src="${style.image}" alt="${style.label}小卡片" />
-          <span>${style.label}</span>
+          <img data-style-card-snapshot="${style.key}" src="${snapshot}" alt="${style.label}风格卡片" />
+          <span class="sr-only">${style.label}</span>
         </button>
       `;
     })
@@ -480,9 +696,9 @@ function renderSelectedStyles() {
 
 function updateSelectedStyleDock() {
   if (!selectedStyleDock) return;
-  const albumOpen = styleAlbumToggle?.getAttribute("aria-expanded") === "true";
-  const filmOpen = !filmDock?.classList.contains("is-collapsed");
-  const shouldShow = styleDockRevealed && selectedStyles.length === 3 && !albumOpen && !filmOpen && !generationStage?.classList.contains("is-running");
+  selectedStyleDock.style.setProperty("--selected-style-count", String(Math.max(1, selectedStyles.length)));
+  const filmOpen = filmDockAnimating || !filmDock?.classList.contains("is-collapsed");
+  const shouldShow = selectedStyles.length > 0 && !filmOpen;
   selectedStyleDock.classList.toggle("is-visible", shouldShow);
 }
 
@@ -494,15 +710,15 @@ function toggleStyleSelection(styleKey) {
     selectedStyles = [...selectedStyles, styleKey];
   } else {
     selectedStyles = [...selectedStyles.slice(1), styleKey];
-    showToast("已替换最早选择的风格。");
   }
   updateStyleWallSelection();
   renderSelectedStyles();
   startGenerationButton.hidden = !(sourceReady && selectedStyles.length === 3);
 }
 
-function setAlbumOpen(open) {
+function setAlbumOpen(open, options = {}) {
   if (!styleAlbumToggle || !styleWall) return;
+  const revealDockOnClose = options.revealDockOnClose ?? true;
   window.clearTimeout(albumAnimationTimer);
   if (open) {
     if (isDeskPhotoVisible()) {
@@ -514,7 +730,7 @@ function setAlbumOpen(open) {
     styleWall.classList.remove("is-closing");
     styleWall.classList.add("is-open");
   } else {
-    if (selectedStyles.length === 3) styleDockRevealed = true;
+    if (selectedStyles.length === 3 && revealDockOnClose) styleDockRevealed = true;
     styleWall.classList.remove("is-open");
     if (!styleWall.hidden) {
       styleWall.classList.add("is-closing");
@@ -538,19 +754,35 @@ async function showStyleFocus(styleKey, originElement = null) {
   const style = getStyle(styleKey);
   if (!styleFocus || !styleFocusImage || !styleFocusLabel) return;
   styleFocusOriginElement = originElement;
-  styleFocusImage.src = style.image;
-  styleFocusImage.alt = `${style.label}风格大图`;
+  const snapshot = await ensureStyleCardSnapshot(style);
+  styleFocus.dataset.styleKey = style.key;
+  styleFocusImage.src = snapshot;
+  styleFocusImage.alt = `${style.label}风格卡片`;
   styleFocusLabel.textContent = style.label;
   styleFocus.hidden = false;
-  phoneShell?.classList.add("is-style-focus");
-  if (originElement && visibleRect(originElement)) {
+  styleFocus.classList.remove("is-closing");
+  styleFocus.classList.add("is-opening");
+  const hasOrigin = originElement && visibleRect(originElement);
+  if (hasOrigin) {
     styleFocusCard?.classList.add("is-flight-hidden");
-    await nextFrame();
-    await flyElementBetween(originElement, styleFocusCard, {
-      duration: 420,
+  }
+  void styleFocus.offsetHeight;
+  if (hasOrigin) {
+    const flight = flyElementBetween(originElement, styleFocusCard, {
+      duration: 360,
       hideSource: true,
-      revealTarget: true
+      revealTarget: true,
+      templateElement: styleFocusCard,
+      matchStartElementTransform: true,
+      matchEndElementTransform: true,
+      zIndex: "90"
     });
+    styleFocus.classList.remove("is-opening");
+    phoneShell?.classList.add("is-style-focus");
+    await flight;
+  } else {
+    styleFocus.classList.remove("is-opening");
+    phoneShell?.classList.add("is-style-focus");
   }
 }
 
@@ -558,13 +790,26 @@ async function closeStyleFocus() {
   if (!styleFocus || styleFocus.hidden || styleFocusClosing) return;
   styleFocusClosing = true;
   const origin = styleFocusOriginElement;
+  let flight = delay(320);
   if (origin && document.body.contains(origin) && visibleRect(origin)) {
-    await flyElementBetween(styleFocusCard, origin, { duration: 360, fadeOut: true, hideSource: true });
+    flight = flyElementBetween(styleFocusCard, origin, {
+      duration: 360,
+      hideSource: true,
+      revealTarget: true,
+      templateElement: styleFocusCard,
+      matchStartElementTransform: true,
+      matchEndElementTransform: true,
+      zIndex: "90"
+    });
   }
+  void styleFocus.offsetHeight;
+  styleFocus.classList.add("is-closing");
+  phoneShell?.classList.remove("is-style-focus");
+  await flight;
   origin?.classList.remove("is-flight-hidden");
   styleFocus.hidden = true;
+  styleFocus.classList.remove("is-closing", "is-opening");
   styleFocusCard?.classList.remove("is-flight-hidden");
-  phoneShell?.classList.remove("is-style-focus");
   styleFocusOriginElement = null;
   styleFocusClosing = false;
 }
@@ -643,12 +888,166 @@ function clearGenerationTimers() {
 }
 
 function resetGenerationCards() {
-  generationCards.forEach((card, index) => {
-    card.classList.remove("is-spawned", "is-generating", "is-ready");
-    const item = generationTiming[index];
-    const time = card.querySelector(".result-time");
-    if (time) time.textContent = item ? `${item.seconds}s` : "";
+  window.clearTimeout(styleFeedRestoreTimer);
+  selectedStyleDock?.classList.remove("is-reference-restoring");
+  selectedStyleDock?.querySelectorAll(".selected-style-card.is-flight-hidden").forEach((card) => {
+    card.classList.remove("is-flight-hidden");
   });
+  generationCards.forEach((card, index) => {
+    card.style.opacity = "";
+    card.style.visibility = "";
+    card.classList.remove("is-spawned", "is-generating", "is-ready", "is-fed-target");
+    const time = card.querySelector(".result-time");
+    if (time) time.textContent = "";
+  });
+}
+
+function getSelectedStyleCardsInOrder() {
+  if (!selectedStyleDock) return [];
+  return selectedStyles
+    .map((key) => selectedStyleDock.querySelector(`[data-style-preview="${key}"]`))
+    .filter(Boolean);
+}
+
+function restoreSelectedStyleCards(cards) {
+  if (!selectedStyleDock || !cards.length) return;
+  window.clearTimeout(styleFeedRestoreTimer);
+  selectedStyleDock.classList.add("is-reference-restoring");
+  cards.forEach((card) => card.classList.remove("is-flight-hidden"));
+  styleFeedRestoreTimer = window.setTimeout(() => {
+    selectedStyleDock.classList.remove("is-reference-restoring");
+  }, 1400);
+}
+
+async function flyStyleReferenceToGenerationTarget(card, target, index) {
+  target.style.opacity = "0";
+  target.style.visibility = "visible";
+  const start = createStageFlightGhost(card, target, { matchStartElementTransform: true, zIndex: "6" });
+  const endPose = getStageFlightPose(target, true);
+  if (!start || !endPose) return;
+  const { ghost, pose: startPose } = start;
+  ghost.style.opacity = "1";
+  const startStyle = getComputedStyle(card);
+  const targetStyle = getComputedStyle(target);
+  const targetImage = target.querySelector(".placeholder-img");
+  const targetImageStyle = targetImage ? getComputedStyle(targetImage) : null;
+  const targetFilter = targetImageStyle?.filter && targetImageStyle.filter !== "none"
+    ? targetImageStyle.filter
+    : "blur(12px) saturate(0.82) contrast(0.9)";
+  const targetImageTransform = targetImageStyle?.transform && targetImageStyle.transform !== "none"
+    ? targetImageStyle.transform
+    : "scale(1.04)";
+  const ghostImage = ghost.querySelector(".placeholder-img");
+  const ghostFinalImage = ghost.querySelector(".final-img");
+  const ghostLoader = ghost.querySelector(".result-loader");
+  if (ghostImage) {
+    ghostImage.style.opacity = "1";
+    ghostImage.style.filter = "blur(0) saturate(1) contrast(1)";
+    ghostImage.style.transform = "scale(1)";
+  }
+  if (ghostFinalImage) ghostFinalImage.style.opacity = "0";
+  if (ghostLoader) ghostLoader.style.opacity = "0";
+  const duration = STYLE_FEED_DURATION;
+  const delayMs = index * 70;
+  card.classList.add("is-flight-hidden");
+  let flight;
+  let imageBlur;
+  let loaderFade;
+  try {
+    flight = ghost.animate(
+      [
+        {
+          left: `${startPose.left}px`,
+          top: `${startPose.top}px`,
+          width: `${startPose.width}px`,
+          height: `${startPose.height}px`,
+          opacity: 1,
+          filter: "saturate(1)",
+          transform: startPose.transform,
+          transformOrigin: startStyle.transformOrigin || "center center",
+          borderRadius: startStyle.borderRadius
+        },
+        {
+          left: `${endPose.left}px`,
+          top: `${endPose.top}px`,
+          width: `${endPose.width}px`,
+          height: `${endPose.height}px`,
+          opacity: 1,
+          filter: "saturate(1)",
+          transform: endPose.transform,
+          transformOrigin: targetStyle.transformOrigin || startStyle.transformOrigin || "center center",
+          borderRadius: targetStyle.borderRadius
+        }
+      ],
+      {
+        duration,
+        delay: delayMs,
+        easing: "cubic-bezier(0.2, 0.82, 0.24, 1)",
+        fill: "forwards"
+      }
+    );
+    imageBlur = ghostImage?.animate(
+      [
+        {
+          filter: "blur(0) saturate(1) contrast(1)",
+          transform: "scale(1)"
+        },
+        {
+          filter: targetFilter,
+          transform: targetImageTransform
+        }
+      ],
+      {
+        duration,
+        delay: delayMs,
+        easing: "cubic-bezier(0.2, 0.82, 0.24, 1)",
+        fill: "forwards"
+      }
+    );
+    loaderFade = ghostLoader?.animate(
+      [
+        { opacity: 0 },
+        { opacity: 1 }
+      ],
+      {
+        duration,
+        delay: delayMs,
+        easing: "cubic-bezier(0.2, 0.82, 0.24, 1)",
+        fill: "forwards"
+      }
+    );
+    await Promise.race([
+      Promise.all([
+        flight.finished.catch(() => {}),
+        imageBlur?.finished?.catch(() => {}),
+        loaderFade?.finished?.catch(() => {})
+      ]),
+      delay(duration + delayMs + 90)
+    ]);
+  } catch {
+    // Fast repeated actions can cancel animations; the final DOM state still lands below.
+  } finally {
+    target.style.opacity = "";
+    target.style.visibility = "";
+    imageBlur?.cancel();
+    loaderFade?.cancel();
+    flight?.cancel();
+    ghost.remove();
+  }
+}
+
+async function flySelectedStylesToGenerationTargets() {
+  const cards = getSelectedStyleCardsInOrder();
+  if (!cards.length) return;
+  await Promise.all(
+    cards.map((card, index) => {
+      const target = generationCards[index];
+      if (!target || !visibleRect(card) || !visibleRect(target)) return Promise.resolve();
+      return flyStyleReferenceToGenerationTarget(card, target, index);
+    })
+  );
+  await delay(STYLE_REFERENCE_REAPPEAR_DELAY);
+  restoreSelectedStyleCards(cards);
 }
 
 function setGenerationImages(group) {
@@ -665,7 +1064,7 @@ function setGenerationImages(group) {
       finalImage.src = output.image;
       finalImage.alt = `${output.label}生成结果`;
     }
-    if (placeholder) placeholder.src = group.source;
+    if (placeholder) placeholder.src = output.image;
     if (label) label.textContent = output.label;
   });
 }
@@ -676,15 +1075,24 @@ function setSourceReady() {
   setAlbumOpen(false);
   setFilmDockExpanded(false, { keepDesk: true });
   resetGenerationCards();
-  const group = createGroup(`draft-${Date.now()}`, "刚上传的原图", "../backup/原图.jpg", selectedStyles);
+  const group = createGroup(`draft-${Date.now()}`, "刚上传的原图", "./assets/原图.jpg", selectedStyles);
   setGenerationImages(group);
   generationStage.classList.add("has-source");
   generationStage.classList.remove("is-running", "is-complete", "is-group-view");
   restartElementAnimation(sourcePhoto);
   styleDockRevealed = true;
   startGenerationButton.hidden = selectedStyles.length !== 3;
+  updateDeleteSourceButton();
   updateSelectedStyleDock();
   setSaveStatus("等待生成");
+}
+
+function deleteSourcePhoto() {
+  if (!sourceReady || !generationStage?.classList.contains("has-source")) return;
+  clearDeskPhotos();
+  closeSharePreview();
+  updateSelectedStyleDock();
+  setSaveStatus("本地已保存");
 }
 
 function updateGenerationCountdown(startedAt) {
@@ -709,31 +1117,29 @@ function startGenerationDemo() {
   styleDockRevealed = false;
   updateSelectedStyleDock();
 
-  const activeGroup = createGroup(`group-${Date.now()}`, "刚刚生成的一组", "../backup/原图.jpg", selectedStyles);
+  const activeGroup = createGroup(`group-${Date.now()}`, "刚刚生成的一组", "./assets/原图.jpg", selectedStyles);
   setGenerationImages(activeGroup);
   generationStage.classList.add("has-source", "is-running");
   generationStage.classList.remove("is-complete", "is-group-view");
   startGenerationButton.hidden = true;
-  restartElementAnimation(sourcePhoto);
+  updateDeleteSourceButton();
   setSaveStatus("正在生成");
 
   generationCards.forEach((card, index) => {
     const item = generationTiming[index];
+    card.style.opacity = "0";
+    card.style.visibility = "visible";
+    card.classList.add("is-spawned", "is-generating", "is-fed-target");
     generationTimers.push(
       window.setTimeout(() => {
-        card.classList.add("is-spawned", "is-generating");
-      }, 760 + index * 190)
-    );
-    generationTimers.push(
-      window.setTimeout(() => {
+        card.classList.remove("is-fed-target");
         card.classList.add("is-ready");
         const time = card.querySelector(".result-time");
-        const label = card.querySelector(".result-label")?.textContent || "风格";
         if (time) time.textContent = "";
-        showToast(`${label} 已生成`);
       }, item.seconds * 1000 + index * 120)
     );
   });
+  void flySelectedStylesToGenerationTargets();
 
   const startedAt = Date.now();
   updateGenerationCountdown(startedAt);
@@ -743,6 +1149,7 @@ function startGenerationDemo() {
     window.setTimeout(() => {
       generationStage.classList.add("is-complete");
       generationStage.classList.remove("is-running");
+      updateDeleteSourceButton();
       setSaveStatus("本地已保存");
       generationGroups = [activeGroup, ...generationGroups].slice(0, 8);
       activeGroupIndex = 0;
@@ -754,20 +1161,42 @@ function startGenerationDemo() {
   );
 }
 
+function getFilmFrameWidth() {
+  const frame = filmTrack?.querySelector(".film-frame");
+  return frame?.getBoundingClientRect().width || 68;
+}
+
+function getFilmViewportFrameCapacity() {
+  const maxGroups = Math.max(1, generationGroups.length);
+  if (!filmStrip || !phoneShell) return maxGroups;
+  const frameWidth = getFilmFrameWidth();
+  if (!frameWidth) return maxGroups;
+  const stripRight = filmStrip.getBoundingClientRect().right;
+  const shellLeft = phoneShell.getBoundingClientRect().left;
+  const framesInsideDesk = (stripRight - shellLeft) / frameWidth;
+  return Math.min(maxGroups, Math.max(FILM_MIN_VISIBLE_FRAMES, framesInsideDesk));
+}
+
 function clampFilmPull(value) {
-  const max = Math.max(1, generationGroups.length);
-  const min = Math.min(FILM_MIN_VISIBLE_FRAMES, max);
+  const groupCount = Math.max(1, generationGroups.length);
+  const max = groupCount + FILM_END_REVEAL_FRAMES;
+  const min = Math.min(FILM_MIN_VISIBLE_FRAMES, groupCount);
   return Math.min(Math.max(value, min), max);
+}
+
+function syncFilmPullStyles() {
+  if (!filmDock) return;
+  const frameWidth = getFilmFrameWidth();
+  const viewportFrames = getFilmViewportFrameCapacity();
+  filmVisibleFrames = Math.min(filmPulledFrames, viewportFrames);
+  const hiddenFrames = Math.max(0, filmPulledFrames - filmVisibleFrames);
+  filmDock.style.setProperty("--film-visible-frames", filmVisibleFrames.toFixed(3));
+  filmDock.style.setProperty("--film-track-offset", `${-(hiddenFrames * frameWidth).toFixed(2)}px`);
 }
 
 function setFilmPulledFrames(value) {
   filmPulledFrames = clampFilmPull(value);
-  filmDock?.style.setProperty("--film-visible-frames", filmPulledFrames.toFixed(3));
-}
-
-function getFilmFrameWidth() {
-  const frame = filmTrack?.querySelector(".film-frame");
-  return frame?.getBoundingClientRect().width || 68;
+  syncFilmPullStyles();
 }
 
 function getFilmFrameIndexFromPoint(clientX) {
@@ -775,13 +1204,13 @@ function getFilmFrameIndexFromPoint(clientX) {
   const stripBox = filmStrip.getBoundingClientRect();
   const localX = clientX - stripBox.left;
   if (localX < 0 || localX > stripBox.width) return null;
-  const index = Math.floor(localX / getFilmFrameWidth());
+  const hiddenFrames = Math.max(0, filmPulledFrames - filmVisibleFrames);
+  const index = Math.floor((localX / getFilmFrameWidth()) + hiddenFrames);
   return index >= 0 && index < generationGroups.length ? index : null;
 }
 
 function renderFilmFrames() {
   if (!filmTrack) return;
-  setFilmPulledFrames(filmPulledFrames);
   filmTrack.innerHTML = "";
   generationGroups.forEach((group, index) => {
     const button = document.createElement("button");
@@ -792,6 +1221,7 @@ function renderFilmFrames() {
     button.innerHTML = `<img src="${group.source}" alt="" />`;
     filmTrack.appendChild(button);
   });
+  setFilmPulledFrames(filmPulledFrames);
 }
 
 function selectGroup(index) {
@@ -818,6 +1248,7 @@ function setGroupOnDesk(group, options = {}) {
     if (time) time.textContent = "";
   });
   startGenerationButton.hidden = true;
+  updateDeleteSourceButton();
   updateSelectedStyleDock();
   if (options.animateFromElement) {
     flyDeskPhotosFrom(options.animateFromElement);
@@ -832,13 +1263,13 @@ async function setFilmDockExpanded(expanded, options = {}) {
   filmToggle.setAttribute("aria-label", expanded ? "收起生成组胶卷" : "展开生成组胶卷");
   if (expanded) {
     filmDockAnimating = true;
-    setAlbumOpen(false);
-    styleDockRevealed = false;
+    if (isAlbumOpen()) setAlbumOpen(false, { revealDockOnClose: false });
     activeGroupIndex = 0;
     setFilmPulledFrames(FILM_MIN_VISIBLE_FRAMES);
     renderFilmFrames();
+    updateSelectedStyleDock();
     filmDock.classList.remove("is-collapsed");
-    await delay(320);
+    await delay(420);
     const sourceFrame = filmTrack?.querySelector(`[data-group-index="${activeGroupIndex}"]`);
     setGroupOnDesk(generationGroups[activeGroupIndex], {
       animateFromElement: sourceFrame
@@ -862,6 +1293,7 @@ async function setFilmDockExpanded(expanded, options = {}) {
     generationStage.classList.remove("has-source", "is-running", "is-complete", "is-group-view");
     resetGenerationCards();
     startGenerationButton.hidden = true;
+    updateDeleteSourceButton();
     styleDockRevealed = true;
     setSaveStatus("本地已保存");
   } else {
@@ -924,22 +1356,186 @@ function handleFilmPointerEnd() {
   window.removeEventListener("pointercancel", resetFilmDrag);
 }
 
+function getShareItemFromElement(element) {
+  if (!element) return null;
+  if (element === sourcePhoto) {
+    const label = element.querySelector("figcaption")?.textContent?.trim() || "原图";
+    return {
+      element,
+      src: sourceImage?.src || "",
+      label
+    };
+  }
+  const finalImage = element.querySelector(".final-img");
+  if (!finalImage) return null;
+  const label = element.querySelector(".result-label")?.textContent?.trim() || "生成图";
+  return {
+    element,
+    src: finalImage.src,
+    label
+  };
+}
+
+function isSharePhotoAvailable(element) {
+  if (!visibleRect(element)) return false;
+  const style = getComputedStyle(element);
+  if (style.visibility === "hidden" || Number(style.opacity) <= 0.01) return false;
+  if (element === sourcePhoto) return true;
+  return element.classList.contains("is-ready") || generationStage?.classList.contains("is-group-view");
+}
+
+function buildSharePreviewItems(originElement, imageSrc, label) {
+  const items = getDeskPhotoElements()
+    .filter(isSharePhotoAvailable)
+    .map(getShareItemFromElement)
+    .filter((item) => item?.src);
+
+  if (!items.length && originElement) {
+    const item = getShareItemFromElement(originElement);
+    if (item?.src) items.push(item);
+  }
+  if (!items.length && imageSrc) {
+    items.push({ element: originElement, src: imageSrc, label });
+  }
+  return items;
+}
+
+function updateSharePreviewMode() {
+  const singleItem = sharePreviewItems.length <= 1;
+  sharePreview?.classList.toggle("is-single-item", singleItem);
+  shareCard?.classList.toggle("is-single-item", singleItem);
+}
+
+function setSharePreviewItem(index) {
+  if (!sharePreviewItems.length || !shareImage || !shareCopy) return;
+  updateSharePreviewMode();
+  sharePreviewIndex = (index + sharePreviewItems.length) % sharePreviewItems.length;
+  const item = sharePreviewItems[sharePreviewIndex];
+  sharePreviewOriginElement = item.element;
+  shareImage.src = item.src;
+  shareImage.alt = `${item.label}发布预览`;
+  if (shareCaption) shareCaption.textContent = item.label;
+  shareCopy.textContent = `${item.label}像从旧相册里翻出来的一小段日常。光线落得刚刚好，画面安静，却有一种很适合发小红书的温度。`;
+  scheduleSharePreviewFit();
+  void waitForImageReady(shareImage).then(scheduleSharePreviewFit);
+}
+
+function cycleSharePreview(direction) {
+  if (sharePreviewClosing || sharePreviewItems.length < 2) return;
+  setSharePreviewItem(sharePreviewIndex + direction);
+}
+
+function resetShareSwipe() {
+  shareSwipeStartX = null;
+  shareSwipeStartY = null;
+  shareSwipeStartedInActions = false;
+}
+
+function pixelValue(value) {
+  return Number.parseFloat(value) || 0;
+}
+
+function getShareImageRatio() {
+  if (shareImage?.naturalWidth && shareImage?.naturalHeight) {
+    return shareImage.naturalHeight / shareImage.naturalWidth;
+  }
+  const origin = sharePreviewItems[sharePreviewIndex]?.element;
+  const rect = visibleRect(origin);
+  if (rect?.width && rect?.height) return rect.height / rect.width;
+  return 4 / 3;
+}
+
+function waitForImageReady(image) {
+  if (!image) return Promise.resolve();
+  if (image.complete) {
+    if (image.naturalWidth && typeof image.decode === "function") {
+      return image.decode().catch(() => {});
+    }
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = () => resolve();
+    image.addEventListener("load", done, { once: true });
+    image.addEventListener("error", done, { once: true });
+  });
+}
+
+function fitSharePreviewCard() {
+  if (!sharePreview || sharePreview.hidden || !shareCard || !shareImage) return;
+  const previewStyle = getComputedStyle(sharePreview);
+  const cardStyle = getComputedStyle(shareCard);
+  const copyStyle = shareCopy ? getComputedStyle(shareCopy) : null;
+  const captionStyle = shareCaption ? getComputedStyle(shareCaption) : null;
+  const hints = sharePreview.querySelector(".share-swipe-hints");
+  const actions = sharePreview.querySelector(".share-actions");
+  const hintsVisible = hints && getComputedStyle(hints).display !== "none";
+  const actionsVisible = actions && getComputedStyle(actions).display !== "none";
+  const rowGapCount = Number(hintsVisible) + Number(actionsVisible);
+  const previewChrome =
+    pixelValue(previewStyle.paddingTop) +
+    pixelValue(previewStyle.paddingBottom) +
+    (pixelValue(previewStyle.rowGap) * rowGapCount) +
+    (hintsVisible ? hints.getBoundingClientRect().height : 0) +
+    (actionsVisible ? actions.getBoundingClientRect().height : 0);
+  const cardChrome =
+    pixelValue(cardStyle.paddingTop) +
+    pixelValue(cardStyle.paddingBottom) +
+    (shareCopy?.getBoundingClientRect().height || 0) +
+    pixelValue(copyStyle?.marginTop) +
+    pixelValue(copyStyle?.marginBottom) +
+    (shareCaption?.getBoundingClientRect().height || 0) +
+    pixelValue(captionStyle?.marginTop) +
+    pixelValue(captionStyle?.marginBottom);
+  const viewportSpace = window.innerHeight - previewChrome - cardChrome - 18;
+  const cardSpace = window.innerHeight - 180 - cardChrome;
+  const cardRect = shareCard.getBoundingClientRect();
+  const imageWidth = shareImage.getBoundingClientRect().width ||
+    Math.max(0, cardRect.width - pixelValue(cardStyle.paddingLeft) - pixelValue(cardStyle.paddingRight));
+  const imageNaturalHeight = imageWidth * getShareImageRatio();
+  const imageHeight = Math.max(40, Math.floor(Math.min(viewportSpace, cardSpace, imageNaturalHeight)));
+  sharePreview.style.setProperty("--share-image-height", `${imageHeight}px`);
+  shareCard.style.setProperty("--share-image-height", `${imageHeight}px`);
+}
+
+function scheduleSharePreviewFit() {
+  if (!sharePreview || sharePreview.hidden) return;
+  window.requestAnimationFrame(fitSharePreviewCard);
+}
+
 async function openSharePreview(imageSrc, label = "照片", originElement = null) {
   if (!sharePreview || !shareImage || !shareCopy) return;
   sharePreviewOriginElement = originElement;
+  sharePreview.classList.remove("is-closing");
+  sharePreview.classList.add("is-opening");
+  sharePreview.style.setProperty("--share-preview-duration", `${SHARE_PREVIEW_OPEN_DURATION}ms`);
   shareImage.src = imageSrc;
   shareImage.alt = `${label}发布预览`;
   shareCopy.textContent = `${label}像从旧相册里翻出来的一小段日常。光线落得刚刚好，画面安静，却有一种很适合发小红书的温度。`;
+  sharePreviewItems = buildSharePreviewItems(originElement, imageSrc, label);
+  const originIndex = sharePreviewItems.findIndex((item) => item.element === originElement);
+  setSharePreviewItem(originIndex >= 0 ? originIndex : 0);
   sharePreview.hidden = false;
+  const target = shareCard || shareImage;
   if (originElement && visibleRect(originElement)) {
-    const target = shareCard || shareImage;
     target?.classList.add("is-flight-hidden");
-    await nextFrame();
-    await flyElementBetween(originElement, target, {
-      duration: 430,
-      hideSource: true,
-      revealTarget: true
-    });
+  }
+  fitSharePreviewCard();
+  await waitForImageReady(shareImage);
+  fitSharePreviewCard();
+  void sharePreview.offsetHeight;
+  const backdrop = delay(SHARE_PREVIEW_OPEN_DURATION);
+  sharePreview.classList.remove("is-opening");
+  if (originElement && visibleRect(originElement)) {
+    await Promise.all([
+      flyElementBetween(originElement, target, {
+        duration: SHARE_PREVIEW_OPEN_DURATION,
+        hideSource: true,
+        revealTarget: true
+      }),
+      backdrop
+    ]);
+  } else {
+    await backdrop;
   }
 }
 
@@ -948,13 +1544,34 @@ async function closeSharePreview() {
   sharePreviewClosing = true;
   const origin = sharePreviewOriginElement;
   const source = shareCard || shareImage;
+  sharePreview.classList.remove("is-opening", "is-closing");
+  sharePreview.style.setProperty("--share-preview-duration", `${SHARE_PREVIEW_CLOSE_DURATION}ms`);
+  void sharePreview.offsetHeight;
+  sharePreview.classList.add("is-closing");
+  const backdrop = delay(SHARE_PREVIEW_CLOSE_DURATION);
   if (origin && document.body.contains(origin) && visibleRect(origin)) {
-    await flyElementBetween(source, origin, { duration: 360, fadeOut: true, hideSource: true });
+    await Promise.all([
+      flyElementBetween(source, origin, {
+        duration: SHARE_PREVIEW_CLOSE_DURATION,
+        hideSource: true,
+        matchEndElementTransform: true,
+        revealTarget: true
+      }),
+      backdrop
+    ]);
+  } else {
+    await backdrop;
   }
   origin?.classList.remove("is-flight-hidden");
+  getDeskPhotoElements().forEach((element) => element.classList.remove("is-flight-hidden"));
   sharePreview.hidden = true;
+  sharePreview.classList.remove("is-closing", "is-opening");
   source?.classList.remove("is-flight-hidden");
   sharePreviewOriginElement = null;
+  sharePreviewItems = [];
+  sharePreviewIndex = 0;
+  updateSharePreviewMode();
+  resetShareSwipe();
   sharePreviewClosing = false;
 }
 
@@ -1019,6 +1636,7 @@ document.addEventListener(
 takePhotoButton?.addEventListener("click", setSourceReady);
 fakeUploadButton?.addEventListener("click", setSourceReady);
 startGenerationButton?.addEventListener("click", startGenerationDemo);
+deleteSourceButton?.addEventListener("click", deleteSourcePhoto);
 
 filmToggle?.addEventListener("click", () => {
   if (styleFocus && !styleFocus.hidden) return;
@@ -1075,6 +1693,12 @@ generationCards.forEach((card) => {
 });
 
 sharePreview?.addEventListener("click", (event) => {
+  if (shareSwipeSuppressClick) {
+    event.preventDefault();
+    event.stopPropagation();
+    shareSwipeSuppressClick = false;
+    return;
+  }
   const actionButton = event.target.closest("[data-share-action]");
   if (!actionButton) {
     closeSharePreview();
@@ -1083,6 +1707,37 @@ sharePreview?.addEventListener("click", (event) => {
   event.stopPropagation();
   handleShareAction(actionButton.dataset.shareAction);
 });
+
+shareCard?.addEventListener("pointerdown", (event) => {
+  if (sharePreview.hidden || sharePreviewClosing || event.button !== 0) return;
+  shareSwipeStartedInActions = false;
+  shareSwipeStartX = event.clientX;
+  shareSwipeStartY = event.clientY;
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+});
+
+shareCard?.addEventListener("pointerup", (event) => {
+  if (shareSwipeStartX === null || shareSwipeStartY === null || shareSwipeStartedInActions) {
+    resetShareSwipe();
+    return;
+  }
+  const deltaX = event.clientX - shareSwipeStartX;
+  const deltaY = event.clientY - shareSwipeStartY;
+  resetShareSwipe();
+  if (Math.abs(deltaX) < 46 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+  event.preventDefault();
+  event.stopPropagation();
+  shareSwipeSuppressClick = true;
+  cycleSharePreview(deltaX < 0 ? 1 : -1);
+  window.setTimeout(() => {
+    shareSwipeSuppressClick = false;
+  }, 260);
+});
+
+shareCard?.addEventListener("pointercancel", resetShareSwipe);
+shareImage?.addEventListener("load", scheduleSharePreviewFit);
+window.addEventListener("resize", scheduleSharePreviewFit);
+window.addEventListener("orientationchange", scheduleSharePreviewFit);
 
 document.querySelectorAll(".filter-chip").forEach((button) => {
   button.addEventListener("click", () => {
