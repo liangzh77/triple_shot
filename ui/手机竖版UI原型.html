@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Triple Shot 手机竖版 UI 原型</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2333261b'/%3E%3Cpath d='M4 5h8v6H4z' fill='%23f1c15b'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./手机竖版UI原型.css?v=film-sequence-20260613-card-image-blur" />
+    <link rel="stylesheet" href="./手机竖版UI原型.css?v=film-sequence-20260613-viewport-sync" />
   </head>
   <body>
     <svg aria-hidden="true" class="svg-sprite">
@@ -265,7 +265,13 @@
         <button class="share-preview-scrim" id="sharePreviewScrim" type="button" aria-label="收起发布预览"></button>
         <article class="share-card" aria-label="发布卡片预览">
           <p id="shareCopy">这组照片像从旧相册里翻出来的一小段夏天。光落在脸上，房间安静下来，连日常也有了值得保存的温度。</p>
-          <img id="shareImage" src="./assets/专业摄影.jpg" alt="发布图片预览" />
+          <div class="share-image-window" id="shareImageWindow">
+            <div class="share-image-track" id="shareImageTrack">
+              <img id="sharePrevImage" src="./assets/专业摄影.jpg" alt="" aria-hidden="true" draggable="false" />
+              <img id="shareImage" src="./assets/专业摄影.jpg" alt="发布图片预览" draggable="false" />
+              <img id="shareNextImage" src="./assets/专业摄影.jpg" alt="" aria-hidden="true" draggable="false" />
+            </div>
+          </div>
           <strong class="share-caption" id="shareCaption"></strong>
         </article>
         <div class="share-swipe-hints" aria-hidden="true">
@@ -371,6 +377,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="./手机竖版UI原型.js?v=film-sequence-20260613-card-image-blur"></script>
+    <script src="./手机竖版UI原型.js?v=film-sequence-20260613-viewport-sync"></script>
   </body>
 </html>

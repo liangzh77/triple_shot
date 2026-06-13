@@ -1,3 +1,27 @@
+const viewportRoot = document.documentElement;
+let viewportMetricsFrame = 0;
+
+function updateViewportMetrics() {
+  window.cancelAnimationFrame(viewportMetricsFrame);
+  viewportMetricsFrame = window.requestAnimationFrame(() => {
+    const visualViewport = window.visualViewport;
+    const layoutHeight = Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0);
+    const visualHeight = Math.max(0, Math.round(visualViewport?.height || layoutHeight));
+
+    viewportRoot.classList.add("has-js-viewport");
+    viewportRoot.style.setProperty("--app-height", `${visualHeight}px`);
+    viewportRoot.style.setProperty("--fixed-bottom-guard", "0px");
+    viewportRoot.style.setProperty("--stage-bottom-guard", "0px");
+  });
+}
+
+updateViewportMetrics();
+window.addEventListener("resize", updateViewportMetrics);
+window.addEventListener("orientationchange", updateViewportMetrics);
+window.addEventListener("pageshow", updateViewportMetrics);
+window.visualViewport?.addEventListener("resize", updateViewportMetrics);
+window.visualViewport?.addEventListener("scroll", updateViewportMetrics);
+
 const styleOptions = [
   {
     key: "original",
@@ -117,7 +141,10 @@ let sharePreviewItems = [];
 let sharePreviewIndex = 0;
 let shareSwipeStartX = null;
 let shareSwipeStartY = null;
-let shareSwipeStartedInActions = false;
+let shareSwipePointerId = null;
+let shareSwipeDragging = false;
+let shareSwipeSettling = false;
+let shareMouseSwipeActive = false;
 let shareSwipeSuppressClick = false;
 let deskFlightRunning = false;
 let filmDockAnimating = false;
@@ -178,7 +205,11 @@ const sharePreview = document.querySelector("#sharePreview");
 const sharePreviewScrim = document.querySelector("#sharePreviewScrim");
 const shareCard = document.querySelector(".share-card");
 const shareCopy = document.querySelector("#shareCopy");
+const shareImageWindow = document.querySelector("#shareImageWindow");
+const shareImageTrack = document.querySelector("#shareImageTrack");
+const sharePrevImage = document.querySelector("#sharePrevImage");
 const shareImage = document.querySelector("#shareImage");
+const shareNextImage = document.querySelector("#shareNextImage");
 const shareCaption = document.querySelector("#shareCaption");
 
 const generationTiming = [
@@ -386,6 +417,30 @@ function createFlightGhost(sourceElement, templateElement = sourceElement, optio
   return { ghost, pose, rotation };
 }
 
+function createAlbumFlightMask({ focused = false } = {}) {
+  const rect = visibleRect(styleAlbumToggle);
+  if (!styleAlbumToggle || !rect) return null;
+  const mask = styleAlbumToggle.cloneNode(true);
+  cleanCloneIds(mask);
+  mask.classList.add("album-flight-mask");
+  mask.classList.toggle("is-style-focus-mask", focused);
+  mask.setAttribute("aria-hidden", "true");
+  Object.assign(mask.style, {
+    position: "fixed",
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    right: "auto",
+    bottom: "auto",
+    margin: "0",
+    zIndex: "95",
+    pointerEvents: "none"
+  });
+  document.body.appendChild(mask);
+  return mask;
+}
+
 function createStageFlightGhost(sourceElement, templateElement = sourceElement, options = {}) {
   if (!generationStage) return null;
   const matchStartTransform = options.matchStartElementTransform ?? options.matchElementTransform;
@@ -489,7 +544,16 @@ async function flyElementBetween(sourceElement, targetElement, options = {}) {
     // Animations can be canceled during fast repeated taps; the UI state below still resolves.
   } finally {
     if (options.revealTarget) {
+      if (options.instantRevealTarget) {
+        targetElement.classList.add("is-flight-revealing");
+      }
       targetElement.classList.remove("is-flight-hidden");
+      if (options.instantRevealTarget) {
+        void targetElement.offsetHeight;
+        requestAnimationFrame(() => {
+          targetElement.classList.remove("is-flight-revealing");
+        });
+      }
     }
     animation?.cancel();
     ghost.remove();
@@ -768,6 +832,7 @@ async function showStyleFocus(styleKey, originElement = null) {
   }
   void styleFocus.offsetHeight;
   if (hasOrigin) {
+    const albumMask = createAlbumFlightMask();
     const flight = flyElementBetween(originElement, styleFocusCard, {
       duration: 360,
       hideSource: true,
@@ -779,7 +844,12 @@ async function showStyleFocus(styleKey, originElement = null) {
     });
     styleFocus.classList.remove("is-opening");
     phoneShell?.classList.add("is-style-focus");
-    await flight;
+    albumMask?.classList.add("is-style-focus-mask");
+    try {
+      await flight;
+    } finally {
+      albumMask?.remove();
+    }
   } else {
     styleFocus.classList.remove("is-opening");
     phoneShell?.classList.add("is-style-focus");
@@ -791,7 +861,9 @@ async function closeStyleFocus() {
   styleFocusClosing = true;
   const origin = styleFocusOriginElement;
   let flight = delay(320);
+  let albumMask = null;
   if (origin && document.body.contains(origin) && visibleRect(origin)) {
+    albumMask = createAlbumFlightMask({ focused: true });
     flight = flyElementBetween(styleFocusCard, origin, {
       duration: 360,
       hideSource: true,
@@ -799,13 +871,16 @@ async function closeStyleFocus() {
       templateElement: styleFocusCard,
       matchStartElementTransform: true,
       matchEndElementTransform: true,
+      instantRevealTarget: true,
       zIndex: "90"
     });
   }
   void styleFocus.offsetHeight;
   styleFocus.classList.add("is-closing");
   phoneShell?.classList.remove("is-style-focus");
+  albumMask?.classList.remove("is-style-focus-mask");
   await flight;
+  albumMask?.remove();
   origin?.classList.remove("is-flight-hidden");
   styleFocus.hidden = true;
   styleFocus.classList.remove("is-closing", "is-opening");
@@ -1166,17 +1241,6 @@ function getFilmFrameWidth() {
   return frame?.getBoundingClientRect().width || 68;
 }
 
-function getFilmViewportFrameCapacity() {
-  const maxGroups = Math.max(1, generationGroups.length);
-  if (!filmStrip || !phoneShell) return maxGroups;
-  const frameWidth = getFilmFrameWidth();
-  if (!frameWidth) return maxGroups;
-  const stripRight = filmStrip.getBoundingClientRect().right;
-  const shellLeft = phoneShell.getBoundingClientRect().left;
-  const framesInsideDesk = (stripRight - shellLeft) / frameWidth;
-  return Math.min(maxGroups, Math.max(FILM_MIN_VISIBLE_FRAMES, framesInsideDesk));
-}
-
 function clampFilmPull(value) {
   const groupCount = Math.max(1, generationGroups.length);
   const max = groupCount + FILM_END_REVEAL_FRAMES;
@@ -1186,12 +1250,9 @@ function clampFilmPull(value) {
 
 function syncFilmPullStyles() {
   if (!filmDock) return;
-  const frameWidth = getFilmFrameWidth();
-  const viewportFrames = getFilmViewportFrameCapacity();
-  filmVisibleFrames = Math.min(filmPulledFrames, viewportFrames);
-  const hiddenFrames = Math.max(0, filmPulledFrames - filmVisibleFrames);
+  filmVisibleFrames = filmPulledFrames;
   filmDock.style.setProperty("--film-visible-frames", filmVisibleFrames.toFixed(3));
-  filmDock.style.setProperty("--film-track-offset", `${-(hiddenFrames * frameWidth).toFixed(2)}px`);
+  filmDock.style.setProperty("--film-track-offset", "0px");
 }
 
 function setFilmPulledFrames(value) {
@@ -1204,8 +1265,7 @@ function getFilmFrameIndexFromPoint(clientX) {
   const stripBox = filmStrip.getBoundingClientRect();
   const localX = clientX - stripBox.left;
   if (localX < 0 || localX > stripBox.width) return null;
-  const hiddenFrames = Math.max(0, filmPulledFrames - filmVisibleFrames);
-  const index = Math.floor((localX / getFilmFrameWidth()) + hiddenFrames);
+  const index = Math.floor(localX / getFilmFrameWidth());
   return index >= 0 && index < generationGroups.length ? index : null;
 }
 
@@ -1315,7 +1375,7 @@ function resetFilmDrag() {
 
 function beginFilmDrag(clientX) {
   if (styleFocus && !styleFocus.hidden) return false;
-  if (isAlbumOpen()) return false;
+  if (isAlbumOpen()) setAlbumOpen(false, { revealDockOnClose: false });
   if (filmDock?.classList.contains("is-collapsed")) return false;
   filmPointerStartX = clientX;
   filmPointerLastX = clientX;
@@ -1406,14 +1466,52 @@ function updateSharePreviewMode() {
   shareCard?.classList.toggle("is-single-item", singleItem);
 }
 
+function normalizeShareIndex(index) {
+  if (!sharePreviewItems.length) return 0;
+  return (index + sharePreviewItems.length) % sharePreviewItems.length;
+}
+
+function getSharePreviewItem(index) {
+  return sharePreviewItems[normalizeShareIndex(index)];
+}
+
+function setCarouselImage(image, item, isCurrent = false) {
+  if (!image || !item) return;
+  image.src = item.src;
+  image.alt = isCurrent ? `${item.label}发布预览` : "";
+}
+
+function updateShareCarouselImages(index = sharePreviewIndex) {
+  if (!sharePreviewItems.length) return;
+  setCarouselImage(sharePrevImage, getSharePreviewItem(index - 1));
+  setCarouselImage(shareImage, getSharePreviewItem(index), true);
+  setCarouselImage(shareNextImage, getSharePreviewItem(index + 1));
+}
+
+function setShareTrackOffset(offset = 0, { animate = false } = {}) {
+  if (!shareImageTrack) return;
+  shareImageTrack.style.transition = animate ? "transform 260ms cubic-bezier(0.16, 1, 0.3, 1)" : "none";
+  shareImageTrack.style.transform = `translate3d(-100%, 0, 0) translate3d(${offset}px, 0, 0)`;
+}
+
+function settleShareTrack(direction) {
+  const width = shareImageWindow?.getBoundingClientRect().width || shareCard?.getBoundingClientRect().width || 320;
+  shareSwipeSettling = true;
+  setShareTrackOffset(direction > 0 ? -width : width, { animate: true });
+  window.setTimeout(() => {
+    setSharePreviewItem(sharePreviewIndex + direction);
+    setShareTrackOffset(0);
+    shareSwipeSettling = false;
+  }, 280);
+}
+
 function setSharePreviewItem(index) {
   if (!sharePreviewItems.length || !shareImage || !shareCopy) return;
   updateSharePreviewMode();
-  sharePreviewIndex = (index + sharePreviewItems.length) % sharePreviewItems.length;
+  sharePreviewIndex = normalizeShareIndex(index);
   const item = sharePreviewItems[sharePreviewIndex];
   sharePreviewOriginElement = item.element;
-  shareImage.src = item.src;
-  shareImage.alt = `${item.label}发布预览`;
+  updateShareCarouselImages();
   if (shareCaption) shareCaption.textContent = item.label;
   shareCopy.textContent = `${item.label}像从旧相册里翻出来的一小段日常。光线落得刚刚好，画面安静，却有一种很适合发小红书的温度。`;
   scheduleSharePreviewFit();
@@ -1422,13 +1520,85 @@ function setSharePreviewItem(index) {
 
 function cycleSharePreview(direction) {
   if (sharePreviewClosing || sharePreviewItems.length < 2) return;
-  setSharePreviewItem(sharePreviewIndex + direction);
+  settleShareTrack(direction);
 }
 
-function resetShareSwipe() {
+function canStartShareSwipe() {
+  return Boolean(
+    sharePreview &&
+    !sharePreview.hidden &&
+    !sharePreviewClosing &&
+    sharePreviewItems.length > 1 &&
+    !shareSwipeSettling
+  );
+}
+
+function beginShareSwipe(clientX, clientY, pointerId = null) {
+  if (!canStartShareSwipe() || shareSwipeStartX !== null) return false;
+  shareSwipeStartX = clientX;
+  shareSwipeStartY = clientY;
+  shareSwipePointerId = pointerId;
+  shareSwipeDragging = false;
+  setShareTrackOffset(0);
+  return true;
+}
+
+function updateShareSwipe(clientX, clientY) {
+  if (shareSwipeStartX === null || shareSwipeStartY === null || !shareImageWindow) return false;
+  const deltaX = clientX - shareSwipeStartX;
+  const deltaY = clientY - shareSwipeStartY;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+  if (!shareSwipeDragging) {
+    if (absX < 8 && absY < 8) return false;
+    if (absY > absX * 1.12) return false;
+    shareSwipeDragging = true;
+  }
+  const width = shareImageWindow.getBoundingClientRect().width || 320;
+  const boundedX = Math.max(-width, Math.min(width, deltaX));
+  setShareTrackOffset(boundedX);
+  return true;
+}
+
+function finishShareSwipe(clientX, clientY) {
+  if (shareSwipeStartX === null || shareSwipeStartY === null || !shareImageWindow) {
+    resetShareSwipe();
+    return false;
+  }
+  const deltaX = clientX - shareSwipeStartX;
+  const deltaY = clientY - shareSwipeStartY;
+  const wasDragging = shareSwipeDragging;
+  const width = shareImageWindow.getBoundingClientRect().width || 320;
+  const shouldCycle =
+    wasDragging &&
+    sharePreviewItems.length > 1 &&
+    Math.abs(deltaX) > Math.min(72, width * 0.22) &&
+    Math.abs(deltaX) > Math.abs(deltaY) * 0.9;
   shareSwipeStartX = null;
   shareSwipeStartY = null;
-  shareSwipeStartedInActions = false;
+  shareSwipePointerId = null;
+  shareMouseSwipeActive = false;
+  shareSwipeDragging = false;
+  if (!wasDragging) return false;
+  shareSwipeSuppressClick = true;
+  if (shouldCycle) {
+    cycleSharePreview(deltaX < 0 ? 1 : -1);
+  } else {
+    setShareTrackOffset(0, { animate: true });
+  }
+  window.setTimeout(() => {
+    shareSwipeSuppressClick = false;
+  }, 320);
+  return true;
+}
+
+function resetShareSwipe({ animate = false } = {}) {
+  shareSwipeStartX = null;
+  shareSwipeStartY = null;
+  shareSwipePointerId = null;
+  shareMouseSwipeActive = false;
+  shareSwipeDragging = false;
+  setShareTrackOffset(0, { animate });
 }
 
 function pixelValue(value) {
@@ -1489,7 +1659,8 @@ function fitSharePreviewCard() {
   const viewportSpace = window.innerHeight - previewChrome - cardChrome - 18;
   const cardSpace = window.innerHeight - 180 - cardChrome;
   const cardRect = shareCard.getBoundingClientRect();
-  const imageWidth = shareImage.getBoundingClientRect().width ||
+  const imageWidth = shareImageWindow?.getBoundingClientRect().width ||
+    shareImage.getBoundingClientRect().width ||
     Math.max(0, cardRect.width - pixelValue(cardStyle.paddingLeft) - pixelValue(cardStyle.paddingRight));
   const imageNaturalHeight = imageWidth * getShareImageRatio();
   const imageHeight = Math.max(40, Math.floor(Math.min(viewportSpace, cardSpace, imageNaturalHeight)));
@@ -1505,6 +1676,7 @@ function scheduleSharePreviewFit() {
 async function openSharePreview(imageSrc, label = "照片", originElement = null) {
   if (!sharePreview || !shareImage || !shareCopy) return;
   sharePreviewOriginElement = originElement;
+  phoneShell?.classList.add("is-share-preview");
   sharePreview.classList.remove("is-closing");
   sharePreview.classList.add("is-opening");
   sharePreview.style.setProperty("--share-preview-duration", `${SHARE_PREVIEW_OPEN_DURATION}ms`);
@@ -1548,6 +1720,7 @@ async function closeSharePreview() {
   sharePreview.style.setProperty("--share-preview-duration", `${SHARE_PREVIEW_CLOSE_DURATION}ms`);
   void sharePreview.offsetHeight;
   sharePreview.classList.add("is-closing");
+  phoneShell?.classList.remove("is-share-preview");
   const backdrop = delay(SHARE_PREVIEW_CLOSE_DURATION);
   if (origin && document.body.contains(origin) && visibleRect(origin)) {
     await Promise.all([
@@ -1572,6 +1745,7 @@ async function closeSharePreview() {
   sharePreviewIndex = 0;
   updateSharePreviewMode();
   resetShareSwipe();
+  phoneShell?.classList.remove("is-share-preview");
   sharePreviewClosing = false;
 }
 
@@ -1606,7 +1780,13 @@ styleAlbumToggle?.addEventListener("click", () => {
 styleWallInner?.addEventListener("click", (event) => {
   const card = event.target.closest("[data-style]");
   if (!card) return;
+  event.stopPropagation();
   toggleStyleSelection(card.dataset.style);
+});
+
+styleWall?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-style]")) return;
+  setAlbumOpen(false);
 });
 
 selectedStyleDock?.addEventListener("click", (event) => {
@@ -1640,13 +1820,13 @@ deleteSourceButton?.addEventListener("click", deleteSourcePhoto);
 
 filmToggle?.addEventListener("click", () => {
   if (styleFocus && !styleFocus.hidden) return;
-  if (isAlbumOpen()) return;
+  if (isAlbumOpen()) setAlbumOpen(false, { revealDockOnClose: false });
   setFilmDockExpanded(filmDock.classList.contains("is-collapsed"));
 });
 
 filmStrip?.addEventListener("click", (event) => {
   if (styleFocus && !styleFocus.hidden) return;
-  if (isAlbumOpen()) return;
+  if (isAlbumOpen()) setAlbumOpen(false, { revealDockOnClose: false });
   if (filmClickSuppressed) {
     filmClickSuppressed = false;
     return;
@@ -1708,33 +1888,63 @@ sharePreview?.addEventListener("click", (event) => {
   handleShareAction(actionButton.dataset.shareAction);
 });
 
-shareCard?.addEventListener("pointerdown", (event) => {
-  if (sharePreview.hidden || sharePreviewClosing || event.button !== 0) return;
-  shareSwipeStartedInActions = false;
-  shareSwipeStartX = event.clientX;
-  shareSwipeStartY = event.clientY;
+shareImageWindow?.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || !beginShareSwipe(event.clientX, event.clientY, event.pointerId)) return;
+  event.preventDefault();
   event.currentTarget.setPointerCapture?.(event.pointerId);
 });
 
-shareCard?.addEventListener("pointerup", (event) => {
-  if (shareSwipeStartX === null || shareSwipeStartY === null || shareSwipeStartedInActions) {
-    resetShareSwipe();
-    return;
-  }
-  const deltaX = event.clientX - shareSwipeStartX;
-  const deltaY = event.clientY - shareSwipeStartY;
-  resetShareSwipe();
-  if (Math.abs(deltaX) < 46 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+shareImageWindow?.addEventListener("pointermove", (event) => {
+  if (shareSwipePointerId !== event.pointerId || !updateShareSwipe(event.clientX, event.clientY)) return;
   event.preventDefault();
   event.stopPropagation();
-  shareSwipeSuppressClick = true;
-  cycleSharePreview(deltaX < 0 ? 1 : -1);
-  window.setTimeout(() => {
-    shareSwipeSuppressClick = false;
-  }, 260);
 });
 
-shareCard?.addEventListener("pointercancel", resetShareSwipe);
+window.addEventListener("pointermove", (event) => {
+  if (shareSwipePointerId !== event.pointerId || !updateShareSwipe(event.clientX, event.clientY)) return;
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+shareImageWindow?.addEventListener("pointerup", (event) => {
+  if (shareSwipePointerId !== event.pointerId || !finishShareSwipe(event.clientX, event.clientY)) return;
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+window.addEventListener("pointerup", (event) => {
+  if (shareSwipePointerId !== event.pointerId || !finishShareSwipe(event.clientX, event.clientY)) return;
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+shareImageWindow?.addEventListener("pointercancel", (event) => {
+  if (shareSwipePointerId !== event.pointerId) return;
+  resetShareSwipe({ animate: shareSwipeDragging });
+});
+
+shareImageWindow?.addEventListener("mousedown", (event) => {
+  if (event.button !== 0 || !beginShareSwipe(event.clientX, event.clientY, "mouse")) return;
+  shareMouseSwipeActive = true;
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+window.addEventListener("mousemove", (event) => {
+  if (!shareMouseSwipeActive || !updateShareSwipe(event.clientX, event.clientY)) return;
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+window.addEventListener("mouseup", (event) => {
+  if (!shareMouseSwipeActive || !finishShareSwipe(event.clientX, event.clientY)) return;
+  event.preventDefault();
+  event.stopPropagation();
+});
+
+shareImageWindow?.addEventListener("dragstart", (event) => {
+  event.preventDefault();
+});
 shareImage?.addEventListener("load", scheduleSharePreviewFit);
 window.addEventListener("resize", scheduleSharePreviewFit);
 window.addEventListener("orientationchange", scheduleSharePreviewFit);
